@@ -98,6 +98,29 @@ void ErasePadInfo(const void* key) {
     pads.erase(key);
 }
 
+// SDL audio for the DualSense USB haptics. Initialized once and never quit while Lichii runs:
+// audio_core's SDL sink skips SDL_InitSubSystem when audio is already up, so quitting the subsystem
+// when a DualSense disconnected dropped SDL's last reference and tore down the game's own audio
+// streams under it (crash on unplug). SDL keeps one reference for us; the process exit cleans up.
+bool EnsureAudioForHaptics() {
+    static std::mutex audio_mutex;
+    static bool audio_ready = false;
+    std::scoped_lock lock{audio_mutex};
+    if (audio_ready) {
+        return true;
+    }
+    if (!SDL_WasInit(SDL_INIT_AUDIO)) {
+        // Same app name as audio_core's sinks (see sdl3_sink.cpp), so Windows shows one application
+        SDL_SetHint("SDL_AUDIO_DEVICE_APP_NAME", "yuzu Latency Getter");
+    }
+    // Always take a reference of our own, even when audio_core already initialized audio
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        return false;
+    }
+    audio_ready = true;
+    return true;
+}
+
 // Bumped by the HD Rumble dialog; PumpEvents re-inits every pad when it differs from the applied one
 std::atomic<uint32_t> settings_generation{0};
 std::atomic<uint32_t> applied_settings_generation{0};
@@ -1047,12 +1070,9 @@ private:
             StartDualSenseBluetooth();
             return;
         }
-        if (!SDL_WasInit(SDL_INIT_AUDIO)) {
-            if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
-                LOG_WARNING(Input, "DualSense haptics: SDL audio init failed: {}", SDL_GetError());
-                return;
-            }
-            ds_audio_inited = true;
+        if (!EnsureAudioForHaptics()) {
+            LOG_WARNING(Input, "DualSense haptics: SDL audio init failed: {}", SDL_GetError());
+            return;
         }
 
         int dev_count = 0;
@@ -1222,10 +1242,6 @@ private:
             SDL_DestroyAudioStream(ds_audio_stream);
             ds_audio_stream = nullptr;
         }
-        if (ds_audio_inited) {
-            SDL_QuitSubSystem(SDL_INIT_AUDIO);
-            ds_audio_inited = false;
-        }
         ds_audio_attempts = 0;
         ds_audio_next_us = 0;
         // Stop the Bluetooth sender before the DSP and the HID handle it uses are freed
@@ -1295,7 +1311,6 @@ private:
     static constexpr int HD_NO_QUEUE_ENVELOPE_GAP_MS = 10;
     int ds_audio_attempts{0};
     int64_t ds_audio_next_us{0};
-    bool ds_audio_inited{false};
     // DualSense on Bluetooth: second HID handle + sender thread for report 0x32
     SDL_hid_device* ds_bt_hid{nullptr};
     std::thread ds_bt_thread;
