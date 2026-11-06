@@ -858,10 +858,16 @@ private:
         int tone_size = 0;
         std::array<u16, 2> grip_speed{};
         bool grip_write = false;
+        SDL_Joystick* joystick = nullptr;
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!steam_triton) {
                 return false;
+            }
+            // Taken under the lock, like TickRenHDrum: SetSDLJoystick swaps sdl_joystick on disconnect
+            joystick = sdl_joystick.get();
+            if (!joystick) {
+                return true;
             }
             const f32 low = std::clamp(v.low_amplitude, 0.0f, 1.0f);
             const f32 high = std::clamp(v.high_amplitude, 0.0f, 1.0f);
@@ -875,30 +881,31 @@ private:
             }
         }
         if (grip_write) {
-            SendSteamGrips(grip_speed[0], grip_speed[1]);
+            SendSteamGrips(joystick, grip_speed[0], grip_speed[1]);
         }
-        if (tone_size && !SDL_SendJoystickEffect(sdl_joystick.get(), tone.data(), tone_size)) {
+        if (tone_size && !SDL_SendJoystickEffect(joystick, tone.data(), tone_size)) {
             LOG_DEBUG(Input, "Steam Controller haptic report failed: {}", SDL_GetError());
         }
         return true;
     }
 
     // Report 0x80: type, intensity (u16), then speed (u16) + gain (s8) for the left and right grip
-    void SendSteamGrips(u16 left, u16 right) {
+    static void SendSteamGrips(SDL_Joystick* joystick, u16 left, u16 right) {
         const std::array<u8, 10> report{STEAM_REPORT_RUMBLE, 0, 0, 0,
                                         static_cast<u8>(left & 0xFF), static_cast<u8>(left >> 8), 0,
                                         static_cast<u8>(right & 0xFF), static_cast<u8>(right >> 8), 0};
-        if (!SDL_SendJoystickEffect(sdl_joystick.get(), report.data(), static_cast<int>(report.size()))) {
+        if (!SDL_SendJoystickEffect(joystick, report.data(), static_cast<int>(report.size()))) {
             LOG_DEBUG(Input, "Steam Controller grip rumble failed: {}", SDL_GetError());
         }
     }
 
-    void StopSteamTones() {
-        SendSteamGrips(0, 0);
-        SDL_RumbleJoystick(sdl_joystick.get(), 0, 0, 0);
+    // Called with renhdrum_mutex held (CleanupRenHDrum)
+    static void StopSteamTones(SDL_Joystick* joystick) {
+        SendSteamGrips(joystick, 0, 0);
+        SDL_RumbleJoystick(joystick, 0, 0, 0);
         for (const u8 side_id : {u8{0x01}, u8{0x02}}) {
             const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0, 0};
-            SDL_SendJoystickEffect(sdl_joystick.get(), off.data(), static_cast<int>(off.size()));
+            SDL_SendJoystickEffect(joystick, off.data(), static_cast<int>(off.size()));
         }
     }
 
@@ -1222,7 +1229,7 @@ private:
         }
         if (steam_triton) {
             if (sdl_joystick) {
-                StopSteamTones();
+                StopSteamTones(sdl_joystick.get());
             }
             steam_triton = false;
         }
