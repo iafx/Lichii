@@ -628,6 +628,38 @@ public:
         return boost == 1.0f ? amplitude : 1.0f - std::pow(1.0f - amplitude, boost);
     }
 
+    // Every 5 s while the game vibrates: the range of frequencies and amplitudes it sent, so a log
+    // shows whether a game varies its HD Rumble frequencies or keeps them fixed (160 / 320 Hz).
+    struct VibrationStats {
+        int64_t window_start_us{0};
+        int samples{0};
+        f32 low_freq_min{0}, low_freq_max{0}, high_freq_min{0}, high_freq_max{0};
+        f32 low_amp_max{0}, high_amp_max{0};
+    };
+
+    void LogVibrationStats(int64_t now_us, const Common::Input::VibrationStatus& v) {
+        std::scoped_lock lock{stats_mutex};
+        auto& st = vibration_stats;
+        if (st.samples == 0) {
+            st = {now_us, 0, v.low_frequency, v.low_frequency, v.high_frequency, v.high_frequency, 0, 0};
+        }
+        ++st.samples;
+        st.low_freq_min = (std::min)(st.low_freq_min, v.low_frequency);
+        st.low_freq_max = (std::max)(st.low_freq_max, v.low_frequency);
+        st.high_freq_min = (std::min)(st.high_freq_min, v.high_frequency);
+        st.high_freq_max = (std::max)(st.high_freq_max, v.high_frequency);
+        st.low_amp_max = (std::max)(st.low_amp_max, v.low_amplitude);
+        st.high_amp_max = (std::max)(st.high_amp_max, v.high_amplitude);
+        if (now_us - st.window_start_us >= 5'000'000) {
+            LOG_INFO(Input,
+                     "HD Rumble from game (pad {}, {} samples / 5 s): low band {:.0f}-{:.0f} Hz (max amp {:.2f}), "
+                     "high band {:.0f}-{:.0f} Hz (max amp {:.2f})",
+                     port, st.samples, st.low_freq_min,
+                     st.low_freq_max, st.low_amp_max, st.high_freq_min, st.high_freq_max, st.high_amp_max);
+            st.samples = 0;
+        }
+    }
+
     // Called on the HLE thread. Returns true when RenHDrum took the vibration (Switch HD engine, or
     // DualSense haptics audio running); false = use the standard rumble below.
     bool RenHDrumVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& raw) {
@@ -637,6 +669,7 @@ public:
         v.high_amplitude = BoostAmplitude(raw.high_amplitude, boost);
         if (v.low_amplitude > 0.01f || v.high_amplitude > 0.01f) {
             last_vibrate_us.store(now_us, std::memory_order_relaxed);
+            LogVibrationStats(now_us, v);
         }
         if (XboxRumbleVibrate(now_us, is_right, v)) {
             return true;
@@ -1249,6 +1282,8 @@ private:
     std::string pad_name;
     RenHdcDualSenseDsp* dualsense_dsp{nullptr};
     RenHdcXboxRumble* xbox_rumble{nullptr};
+    std::mutex stats_mutex;
+    VibrationStats vibration_stats{};
     bool steam_triton{false};
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};
