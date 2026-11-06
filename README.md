@@ -23,7 +23,70 @@ This is an independent fork, not an official release of those upstream projects.
 
 Visit the [Lichii game compatibility website](https://lichii.zortos.me) to find games and compare community compatibility reports.
 
+## This fork: Lichii + RenHDrum (HD Rumble)
+
+**English** · [Español](#este-fork-lichii--renhdrum-hd-rumble)
+
+This fork adds [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/tag/v0.2.1) HD Rumble to Lichii, plus HD rumble for the Steam Controller (2026) and several fixes. Everything lives on the **`renhdrum`** branch, on top of `nx2`.
+
+### Downloads
+
+GitHub Actions builds Windows x64: open [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml), pick the latest green run and download the zip under **Artifacts** (the artifact is a zip inside a zip: extract both). Run `lichii.exe` from its own folder, since `renhdrum.dll` has to sit next to it.
+
+### What vibrates and how
+
+| Controller | What it does |
+|---|---|
+| Pro Controller | Switch HD Rumble through RenHDrum. Joy-Con use Lichii's own Joy-Con driver by default; turn that driver off in the controls settings to route them through RenHDrum |
+| DualSense / DualSense Edge | RenHDrum haptics: 4-channel audio over USB, output report 0x32 over Bluetooth |
+| Xbox One controller | RenHDrum rumble, trigger motors included |
+| Steam Controller (2026) | All four motors: low band → grip on each side, high band → trackpad on each side (a tone at the game's frequency) |
+
+### Settings
+
+**Emulation → Configure → Controls → Vibration → Configure**, **HD Rumble** section:
+
+- **Boost** (100–400 %): makes quiet and medium effects stronger. RenHDrum sends the game's amplitude as is, without the curve the standard rumble applies, so without a boost it can feel weak. 100 % changes nothing; strong effects never go past the controller's maximum.
+- **Steam Controller**: "4 motors" (grips + trackpads) or "Trackpads only" (one tone per side).
+- **Steam Controller trackpads** (-20 to +6 dB): extra strength for the trackpads.
+
+Changes apply right away. To turn HD Rumble off entirely, create an empty file named `hdrumble_off` (no extension) next to `lichii.exe`.
+
+### Changes compared to Lichii
+
+- **RenHDrum integration:** port of RenHDrum's `integrations/brontide-ns2` patches to Lichii (the Switch 2 command 214 was already in Lichii). SDL3 is built from source with RenHDrum's patches and linked statically, because the prebuilt SDL3 lacks the HD Rumble functions.
+- **Steam Controller (2026):** HD rumble on all four motors, with an SDL patch that lets the controller's haptic commands through.
+- **Fix, Steam Controller:** the controller stops vibrating after ~50 ms and SDL only resent rumble every 2 s, so any steady vibration cut out almost at once. It is now resent every 40 ms, as in the latest SDL.
+- **Fix, DualSense over USB:** Lichii closed when the controller was unplugged. The USB haptics shut down SDL's audio subsystem on disconnect, destroying the game's own audio with it. It now stays up while Lichii runs.
+- **Fix:** unsafe access to the Steam Controller while it disconnects.
+- **Diagnostics:** while a game vibrates, the log shows every 5 s the range of frequencies and amplitudes it sends (`HD Rumble from game ...`).
+- **CI:** [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) builds RenHDrum and Lichii for Windows x64 (MSVC) and uploads the zip.
+
+### Status
+
+Experimental. Steam Controller (2026) support is based on SDL's public protocol and may need tuning, for example if one side vibrates swapped. If something breaks, open an issue with the controller, whether it is wired or Bluetooth, and the log (**File → Open Lichii Folders → Log Folder**).
+
+### Building
+
+```
+git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
+(cd RenHDrum && cargo build --release)
+git clone --branch renhdrum https://github.com/<your-user>/Lichii.git
+cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
+cmake --build build
+```
+
+`RENHDRUM_DIR` defaults to `../RenHDrum` next to Lichii. Windows links `renhdrum.dll.lib` and copies the DLL next to the executable; other systems link `librenhdrum.a`.
+
+### Credits and licenses
+
+- [Lichii](https://github.com/zortos293/Lichii) by zortos293 and the projects it derives from (Eglantine, Eden, yuzu, Sudachi): GPL.
+- [RenHDrum](https://github.com/trzz1214/RenHDrum) by trzz1214: MIT / Apache-2.0. Builds ship its licenses.
+- [SDL](https://github.com/libsdl-org/SDL): zlib.
+
 ## Este fork: Lichii + RenHDrum (HD Rumble)
+
+[English](#this-fork-lichii--renhdrum-hd-rumble) · **Español**
 
 Este fork añade a Lichii la vibración HD de [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/tag/v0.2.1), más soporte de vibración HD para el Steam Controller (2026) y varias correcciones. Todo está en la rama **`renhdrum`**, encima de `nx2`.
 
@@ -42,7 +105,7 @@ Las builds de Windows x64 las genera GitHub Actions: abre [Actions → lichii-re
 
 ### Ajustes
 
-En **Emulación → Configurar → Controles → Vibración**, sección **HD Rumble**:
+En **Emulación → Configurar → Controles → Vibración → Configurar**, sección **HD Rumble**:
 
 - **Boost** (100–400 %): refuerza las vibraciones suaves y medias. RenHDrum envía la intensidad del juego tal cual, sin la curva que aplica el rumble normal, y sin refuerzo puede notarse floja. Con 100 % no cambia nada; los efectos fuertes nunca pasan del máximo del mando.
 - **Steam Controller**: "4 motors" (empuñaduras + trackpads) o "Trackpads only" (un tono por lado).
@@ -62,7 +125,7 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 
 ### Estado
 
-Experimental. El soporte del Steam Controller (2026) se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Ayuda → Abrir carpeta de logs**).
+Experimental. El soporte del Steam Controller (2026) se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Archivo → Abrir carpetas de Lichii → Carpeta de logs**).
 
 ### Compilar
 
