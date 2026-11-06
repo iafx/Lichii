@@ -23,6 +23,65 @@ This is an independent fork, not an official release of those upstream projects.
 
 Visit the [Lichii game compatibility website](https://lichii.zortos.me) to find games and compare community compatibility reports.
 
+## Este fork: Lichii + RenHDrum (HD Rumble)
+
+Este fork añade a Lichii la vibración HD de [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/tag/v0.2.1), más soporte de vibración HD para el Steam Controller (2026) y varias correcciones. Todo está en la rama **`renhdrum`**, encima de `nx2`.
+
+### Descargas
+
+Las builds de Windows x64 las genera GitHub Actions: abre [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml), entra en la última ejecución en verde y descarga el zip de **Artifacts** (el artifact es un zip que contiene otro zip; descomprime los dos). Ejecuta `lichii.exe` sin sacarlo de su carpeta: `renhdrum.dll` tiene que estar al lado.
+
+### Qué vibra y cómo
+
+| Mando | Qué hace |
+|---|---|
+| Pro Controller | HD Rumble de Switch a través de RenHDrum. Los Joy-Con usan por defecto el driver propio de Lichii; para pasarlos por RenHDrum, desactiva ese driver en la configuración de controles |
+| DualSense / DualSense Edge | Hápticos de RenHDrum: por USB como audio de 4 canales, por Bluetooth con el informe 0x32 |
+| Mando de Xbox One | Rumble de RenHDrum, incluidos los motores de los gatillos |
+| Steam Controller (2026) | Los cuatro motores: banda grave → empuñadura de cada lado, banda aguda → trackpad de cada lado (tono a la frecuencia del juego) |
+
+### Ajustes
+
+En **Emulación → Configurar → Controles → Vibración**, sección **HD Rumble**:
+
+- **Boost** (100–400 %): refuerza las vibraciones suaves y medias. RenHDrum envía la intensidad del juego tal cual, sin la curva que aplica el rumble normal, y sin refuerzo puede notarse floja. Con 100 % no cambia nada; los efectos fuertes nunca pasan del máximo del mando.
+- **Steam Controller**: "4 motors" (empuñaduras + trackpads) o "Trackpads only" (un tono por lado).
+- **Steam Controller trackpads** (-20 a +6 dB): fuerza extra de los trackpads.
+
+Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea un archivo vacío llamado `hdrumble_off` (sin extensión) junto a `lichii.exe`.
+
+### Cambios respecto a Lichii
+
+- **Integración de RenHDrum:** port de los parches `integrations/brontide-ns2` de RenHDrum a Lichii (el comando 214 de Switch 2 ya estaba en Lichii). SDL3 se compila desde el código fuente con los parches de RenHDrum y se enlaza en estático, porque la versión precompilada no tiene las funciones de HD Rumble.
+- **Steam Controller (2026):** vibración HD en los cuatro motores. Incluye un parche de SDL que deja pasar al mando sus comandos de vibración.
+- **Corrección, Steam Controller:** el mando corta la vibración a los ~50 ms y SDL solo la reenviaba cada 2 s, así que cualquier vibración constante se cortaba casi enseguida. Ahora se reenvía cada 40 ms, como en la versión más reciente de SDL.
+- **Corrección, DualSense por USB:** Lichii se cerraba al desconectar el mando. Los hápticos USB apagaban el sistema de audio de SDL al desconectarse y con él destruían el sonido del juego. Ahora se mantiene activo mientras Lichii está abierto.
+- **Corrección:** acceso inseguro al Steam Controller durante la desconexión.
+- **Diagnóstico:** mientras el juego vibra, el log muestra cada 5 s el rango de frecuencias e intensidades que envía (`HD Rumble from game ...`).
+- **CI:** workflow [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) que compila RenHDrum y Lichii para Windows x64 (MSVC) y publica el zip.
+
+### Estado
+
+Experimental. El soporte del Steam Controller (2026) se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Ayuda → Abrir carpeta de logs**).
+
+### Compilar
+
+```
+git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
+(cd RenHDrum && cargo build --release)
+git clone --branch renhdrum https://github.com/<tu-usuario>/Lichii.git
+cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
+cmake --build build
+```
+
+Por defecto `RENHDRUM_DIR` apunta a `../RenHDrum` respecto a Lichii. En Windows se enlaza `renhdrum.dll.lib` y la DLL se copia junto al ejecutable; en el resto de sistemas se enlaza `librenhdrum.a`.
+
+### Créditos y licencias
+
+- [Lichii](https://github.com/zortos293/Lichii), de zortos293 y los proyectos de los que deriva (Eglantine, Eden, yuzu, Sudachi): GPL.
+- [RenHDrum](https://github.com/trzz1214/RenHDrum), de trzz1214: MIT / Apache-2.0. Las builds incluyen sus licencias.
+- [SDL](https://github.com/libsdl-org/SDL): zlib.
+
 ## Downloads and setup
 
 Download Lichii only from this repository's [releases page](https://github.com/zortos293/Lichii/releases). Lichii has no other download site: archives offered elsewhere, such as lichii.org, are not built by this project, and one has been reported to install malware ([#545](https://github.com/zortos293/Lichii/issues/545)).
