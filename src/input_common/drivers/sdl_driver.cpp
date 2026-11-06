@@ -653,6 +653,9 @@ public:
         if (XboxRumbleVibrate(now_us, is_right, v)) {
             return true;
         }
+        if (SteamTritonVibrate(now_us, is_right, v)) {
+            return true;
+        }
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!renhdrum_engine) {
@@ -758,6 +761,113 @@ private:
                 PublishPad({pad_name, false, is_bluetooth, "Xbox rumble", false});
             }
         }
+        // Steam Controller (2026, "Triton"): wired, Bluetooth LE or the Steam dongles
+        else if (vid == 0x28DE && pid >= 0x1302 && pid <= 0x1305) {
+            if (!HdRumbleOn()) {
+                LOG_INFO(Input, "HD Rumble off: Steam Controller {:04X}:{:04X} uses plain rumble", vid, pid);
+                return;
+            }
+            const bool is_bluetooth = pid == 0x1303;
+            // Like the other pads here: callers already serialize Init/Cleanup (SetSDLJoystick holds renhdrum_mutex)
+            steam_triton = true;
+            steam_tone = {};
+            pad_name = "Steam Controller";
+            LOG_INFO(Input, "Initialized Steam Controller HD tones for {:04X}:{:04X}", vid, pid);
+            PublishPad({pad_name, false, is_bluetooth, "Steam HD tones", false});
+        }
+    }
+
+    // Steam Controller HD rumble. Each side gets a tone at the strongest Switch band's frequency
+    // (output report 0x83, the controller's own tone generator) instead of SDL's plain 2-motor
+    // rumble. Tones last 60 ms and are refreshed while the game keeps vibrating, so a stalled
+    // emulator never leaves the pad buzzing.
+    static constexpr u8 STEAM_REPORT_COMMAND = 0x82;
+    static constexpr u8 STEAM_REPORT_LFO_TONE = 0x83;
+    static constexpr int64_t STEAM_TONE_MIN_GAP_US = 8'000;
+    static constexpr int64_t STEAM_TONE_REFRESH_US = 30'000;
+    static constexpr u16 STEAM_TONE_DURATION_MS = 60;
+
+    struct SteamToneSide {
+        bool on{false};
+        u16 frequency{0};
+        s8 gain_db{0};
+        int64_t last_write_us{0};
+    };
+
+    bool SteamTritonVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
+        std::array<u8, 10> report{};
+        int size = 0;
+        {
+            std::scoped_lock lock{renhdrum_mutex};
+            if (!steam_triton) {
+                return false;
+            }
+            auto& side = steam_tone[is_right ? 1 : 0];
+            const f32 low = std::clamp(v.low_amplitude, 0.0f, 1.0f);
+            const f32 high = std::clamp(v.high_amplitude, 0.0f, 1.0f);
+            const f32 amplitude = std::min(1.0f, std::max(low, high) + 0.5f * std::min(low, high));
+            const u8 side_id = is_right ? 0x02 : 0x01;
+
+            if (amplitude < 0.02f) {
+                if (!side.on) {
+                    return true;
+                }
+                side.on = false;
+                side.last_write_us = now_us;
+                report = {STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
+                size = 4;
+            } else {
+                const f32 band_frequency = low >= high ? v.low_frequency : v.high_frequency;
+                const u16 frequency = static_cast<u16>(std::clamp(band_frequency, 40.0f, 1250.0f));
+                const s8 gain_db = static_cast<s8>(
+                    std::clamp(std::lround(20.0f * std::log10(amplitude)) + SteamGainOffsetDb(), -40L, 6L));
+                const bool changed = !side.on || gain_db != side.gain_db ||
+                                     std::abs(frequency - side.frequency) > side.frequency / 32;
+                const int64_t since = now_us - side.last_write_us;
+                if (since < STEAM_TONE_MIN_GAP_US || (!changed && since < STEAM_TONE_REFRESH_US)) {
+                    return true;
+                }
+                side = {true, frequency, gain_db, now_us};
+                report = {STEAM_REPORT_LFO_TONE,
+                          side_id,
+                          static_cast<u8>(gain_db),
+                          static_cast<u8>(frequency & 0xFF),
+                          static_cast<u8>(frequency >> 8),
+                          static_cast<u8>(STEAM_TONE_DURATION_MS & 0xFF),
+                          static_cast<u8>(STEAM_TONE_DURATION_MS >> 8),
+                          0, 0, 0 /* no LFO */};
+                size = 10;
+            }
+        }
+        if (!SDL_SendJoystickEffect(sdl_joystick.get(), report.data(), size)) {
+            LOG_DEBUG(Input, "Steam Controller haptic report failed: {}", SDL_GetError());
+        }
+        return true;
+    }
+
+    void StopSteamTones() {
+        for (const u8 side_id : {u8{0x01}, u8{0x02}}) {
+            const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0, 0};
+            SDL_SendJoystickEffect(sdl_joystick.get(), off.data(), static_cast<int>(off.size()));
+        }
+    }
+
+    // Extra gain for the Steam Controller tones, in dB, from hdrumble_steam_gain_db.txt next to
+    // lichii.exe (-20 to +6, default 0). Read once.
+    static long SteamGainOffsetDb() {
+        static const long offset = [] {
+            long value = 0;
+            if (const char* base = SDL_GetBasePath()) {
+                std::ifstream file(std::string(base) + "hdrumble_steam_gain_db.txt");
+                if (!(file >> value)) {
+                    value = 0;
+                }
+            }
+            value = std::clamp(value, -20L, 6L);
+            LOG_INFO(Input, "Steam Controller HD tone gain offset: {} dB", value);
+            return value;
+        }();
+        return offset;
     }
 
     // Ryuhdr's recommended mode for a configured pad (0.2.6): wired 15 ms + cards 1 / 3 / 5 / 7 / 8, Bluetooth level 3 +
@@ -1068,6 +1178,12 @@ private:
             renhdrum_xbox_rumble_destroy(xbox_rumble);
             xbox_rumble = nullptr;
         }
+        if (steam_triton) {
+            if (sdl_joystick) {
+                StopSteamTones();
+            }
+            steam_triton = false;
+        }
     }
 
     Common::UUID guid;
@@ -1084,6 +1200,8 @@ private:
     std::string pad_name;
     RenHdcDualSenseDsp* dualsense_dsp{nullptr};
     RenHdcXboxRumble* xbox_rumble{nullptr};
+    bool steam_triton{false};
+    std::array<SteamToneSide, 2> steam_tone{};
     std::mutex pending_vibration_mutex;
     std::optional<Common::Input::VibrationStatus> pending_vibration;
     SDL_AudioStream* ds_audio_stream{nullptr};

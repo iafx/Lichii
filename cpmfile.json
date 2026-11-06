@@ -264,7 +264,8 @@
         "package": "SDL3",
         "patches": [
             "0001-hdrumble.patch",
-            "0002-hdrumble-idle-write.patch"
+            "0002-hdrumble-idle-write.patch",
+            "0003-steam-triton-haptic-effects.patch"
         ],
         "repo": "libsdl-org/SDL",
         "version": "release-3.4.8"

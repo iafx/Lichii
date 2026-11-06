@@ -1,0 +1,26 @@
+diff --git a/src/joystick/hidapi/SDL_hidapi_steam_triton.c b/src/joystick/hidapi/SDL_hidapi_steam_triton.c
+index 79bcc32..1700981 100644
+--- a/src/joystick/hidapi/SDL_hidapi_steam_triton.c
++++ b/src/joystick/hidapi/SDL_hidapi_steam_triton.c
+@@ -475,7 +475,20 @@ static bool HIDAPI_DriverSteamTriton_SetJoystickLED(SDL_HIDAPI_Device *device, S
+ 
+ static bool HIDAPI_DriverSteamTriton_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
+ {
+-    return SDL_Unsupported();
++    // Raw haptic output reports (0x80 rumble .. 0x86 script), report ID included. Lets an
++    // application drive the per-side tone generator for HD rumble.
++    const Uint8 *report = (const Uint8 *)data;
++
++    if (!report || size < 2 || size > 64) {
++        return SDL_InvalidParamError("size");
++    }
++    if (report[0] < ID_OUT_REPORT_HAPTIC_RUMBLE || report[0] > ID_OUT_REPORT_HAPTIC_SCRIPT) {
++        return SDL_Unsupported();
++    }
++    if (SDL_hid_write(device->dev, report, size) != size) {
++        return SDL_SetError("Couldn't send Steam Controller haptic report");
++    }
++    return true;
+ }
+ 
+ static bool HIDAPI_DriverSteamTriton_SetSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
