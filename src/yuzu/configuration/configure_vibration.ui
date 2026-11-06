@@ -514,6 +514,94 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="hdRumbleGroup">
+     <property name="title">
+      <string>HD Rumble</string>
+     </property>
+     <layout class="QFormLayout" name="hdRumbleLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="labelHdRumbleBoost">
+        <property name="text">
+         <string>Boost</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QSpinBox" name="spinHdRumbleBoost">
+        <property name="toolTip">
+         <string>Makes quiet and medium HD Rumble effects stronger. 100% sends what the game asks for; strong effects stay at the controller's maximum.</string>
+        </property>
+        <property name="suffix">
+         <string>%</string>
+        </property>
+        <property name="minimum">
+         <number>100</number>
+        </property>
+        <property name="maximum">
+         <number>400</number>
+        </property>
+        <property name="singleStep">
+         <number>10</number>
+        </property>
+        <property name="value">
+         <number>100</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="labelSteamMode">
+        <property name="text">
+         <string>Steam Controller</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="comboSteamMode">
+        <property name="toolTip">
+         <string>How HD Rumble is played on the Steam Controller (2026). Takes effect when the controller reconnects.</string>
+        </property>
+        <item>
+         <property name="text">
+          <string>4 motors (low band on grips, high band on trackpads)</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>Trackpads only (one tone per side)</string>
+         </property>
+        </item>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="labelSteamTrackpadGain">
+        <property name="text">
+         <string>Steam Controller trackpads</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QSpinBox" name="spinSteamTrackpadGain">
+        <property name="toolTip">
+         <string>Extra strength for the trackpad haptics of the Steam Controller (2026).</string>
+        </property>
+        <property name="suffix">
+         <string> dB</string>
+        </property>
+        <property name="minimum">
+         <number>-20</number>
+        </property>
+        <property name="maximum">
+         <number>6</number>
+        </property>
+        <property name="value">
+         <number>0</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="spacerVibration">
      <property name="orientation">
       <enum>Qt::Vertical</enum>

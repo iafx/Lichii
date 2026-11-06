@@ -8,7 +8,6 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
-#include <fstream>
 #include <map>
 #include <mutex>
 #include <numbers>
@@ -614,25 +613,14 @@ public:
         SDL_SendJoystickEffect(joystick, packet, sizeof(packet));
     }
 
-    // Vibration boost for the RenHDrum paths, read once from hdrumble_boost.txt next to lichii.exe
-    // (a number from 1.0 to 4.0; 1.0 or no file = what the game asks for). RenHDrum sends the game's
-    // amplitude as is, without the curve the standard rumble applies, so quiet effects feel weak.
+    // Vibration boost for the RenHDrum paths: Configure Vibration > HD Rumble > Boost (100-400 %,
+    // 100 = what the game asks for). RenHDrum sends the game's amplitude as is, without the curve
+    // the standard rumble applies, so quiet effects feel weak.
     // a' = 1 - (1 - a)^boost lifts quiet and medium effects while 0 stays 0 and 1.0 (the most the
     // motors accept) stays the top, so strong effects do not all flatten into one level.
     static float RenHDrumBoost() {
-        static const float boost = [] {
-            float value = 1.0f;
-            if (const char* base = SDL_GetBasePath()) {
-                std::ifstream file(std::string(base) + "hdrumble_boost.txt");
-                if (!(file >> value) || !std::isfinite(value)) {
-                    value = 1.0f;
-                }
-            }
-            value = std::clamp(value, 1.0f, 4.0f);
-            LOG_INFO(Input, "RenHDrum vibration boost: {:.2f}", value);
-            return value;
-        }();
-        return boost;
+        return static_cast<float>(std::clamp(Settings::values.hd_rumble_boost.GetValue(), 100, 400)) /
+               100.0f;
     }
 
     static f32 BoostAmplitude(f32 amplitude, float boost) {
@@ -783,7 +771,8 @@ private:
     //    Amplitude only, the firmware picks the waveform. Sent here rather than through
     //    SDL_RumbleJoystick, which skips repeated values while the pad stops after ~50 ms.
     //  - high band -> trackpad motor of that side: tone report 0x83 at the game's own frequency.
-    // hdrumble_steam_mode.txt = "tones" goes back to one tone per side (stronger band) and no grips.
+    // Configure Vibration > HD Rumble > Steam Controller can go back to one tone per side (stronger
+    // band) and no grips.
     // Everything is sent for 60 ms and refreshed while the game vibrates: the pad stops by itself
     // (and the firmware's ~50 ms safety timeout never cuts in) if the emulator stalls.
     static constexpr u8 STEAM_REPORT_RUMBLE = 0x80;
@@ -913,38 +902,14 @@ private:
         }
     }
 
-    // hdrumble_steam_mode.txt next to lichii.exe: "split" (default, 4 motors) or "tones". Read once.
+    // Configure Vibration > HD Rumble > Steam Controller
     static bool SteamSplitBands() {
-        static const bool split = [] {
-            std::string mode = "split";
-            if (const char* base = SDL_GetBasePath()) {
-                std::ifstream file(std::string(base) + "hdrumble_steam_mode.txt");
-                file >> mode;
-            }
-            const bool is_split = mode != "tones";
-            LOG_INFO(Input, "Steam Controller HD rumble: {}",
-                     is_split ? "4 motors (low band grips, high band trackpads)" : "one tone per side");
-            return is_split;
-        }();
-        return split;
+        return Settings::values.steam_hd_four_motors.GetValue();
     }
 
-    // Extra gain for the Steam Controller tones, in dB, from hdrumble_steam_gain_db.txt next to
-    // lichii.exe (-20 to +6, default 0). Read once.
+    // Configure Vibration > HD Rumble > Steam Controller trackpads, in dB (-20 to +6)
     static long SteamGainOffsetDb() {
-        static const long offset = [] {
-            long value = 0;
-            if (const char* base = SDL_GetBasePath()) {
-                std::ifstream file(std::string(base) + "hdrumble_steam_gain_db.txt");
-                if (!(file >> value)) {
-                    value = 0;
-                }
-            }
-            value = std::clamp(value, -20L, 6L);
-            LOG_INFO(Input, "Steam Controller HD tone gain offset: {} dB", value);
-            return value;
-        }();
-        return offset;
+        return std::clamp<long>(Settings::values.steam_trackpad_gain_db.GetValue(), -20, 6);
     }
 
     // Ryuhdr's recommended mode for a configured pad (0.2.6): wired 15 ms + cards 1 / 3 / 5 / 7 / 8, Bluetooth level 3 +

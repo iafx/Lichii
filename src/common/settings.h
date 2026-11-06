@@ -895,6 +895,14 @@ struct Values {
                                               Category::Controls};
     SwitchableSetting<bool> enable_accurate_vibrations{linkage, false, "enable_accurate_vibrations",
                                                        Category::Controls};
+    // RenHDrum HD Rumble (Configure Vibration > HD Rumble)
+    // Boost for quiet and medium effects, in percent: 100 = what the game asks for, up to 400
+    Setting<int> hd_rumble_boost{linkage, 100, "hd_rumble_boost", Category::Controls};
+    // Steam Controller (2026): low band on the grip motors and high band on the trackpads (true),
+    // or one tone per side on the trackpads (false)
+    Setting<bool> steam_hd_four_motors{linkage, true, "steam_hd_four_motors", Category::Controls};
+    // Steam Controller trackpad tone gain in dB, -20 to +6
+    Setting<int> steam_trackpad_gain_db{linkage, 0, "steam_trackpad_gain_db", Category::Controls};
 
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};
     Setting<std::string> udp_input_servers{linkage, "127.0.0.1:26760", "udp_input_servers",
