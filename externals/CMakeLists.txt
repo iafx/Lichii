@@ -152,6 +152,15 @@ if(ENABLE_CUBEB)
     endif()
 endif()
 
+# RenHDrum needs the SDL_HDRumble* entry points added by .patch/sdl3, so SDL3 is always built from
+# source with those patches and linked statically (the prebuilt and system SDL3 do not have them).
+if (NOT ANDROID)
+    set(YUZU_USE_BUNDLED_SDL3 OFF)
+    set(SDL3_FORCE_BUNDLED ON CACHE BOOL "" FORCE)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+endif()
+
 if (NOT YUZU_USE_BUNDLED_SDL3)
     if (NOT WIN32)
         # Yuzu itself needs: Atomic Audio Events Joystick Haptic Sensor Threads Timers

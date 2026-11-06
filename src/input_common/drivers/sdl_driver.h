@@ -13,6 +13,7 @@
 #include "common/container/unordered_map.h"
 
 #include <SDL3/SDL.h>
+#include <renhdrum.h>
 
 #include "common/common_types.h"
 #include "common/threadsafe_queue.h"
@@ -117,7 +118,7 @@ private:
 
     /// Map of GUID of a list of corresponding virtual Joysticks
     ::Common::unordered_map<Common::UUID, std::vector<std::shared_ptr<SDLJoystick>>> joystick_map;
-    std::mutex joystick_map_mutex;
+    mutable std::mutex joystick_map_mutex;
     std::chrono::steady_clock::time_point last_motion_stall_check{};
 
     std::atomic<bool> initialized = false;

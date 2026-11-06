@@ -521,3 +521,11 @@ if (LICHII_NXFORMAT_RUNTIME)
 endif()
 
 create_target_directory_groups(yuzu)
+
+# RenHDrum (HD Rumble / DualSense haptics) runs from renhdrum.dll on Windows
+if (WIN32 AND RENHDRUM_RUNTIME AND EXISTS "${RENHDRUM_RUNTIME}")
+    add_custom_command(TARGET yuzu POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${RENHDRUM_RUNTIME}" "$<TARGET_FILE_DIR:yuzu>/renhdrum.dll"
+        VERBATIM)
+endif()

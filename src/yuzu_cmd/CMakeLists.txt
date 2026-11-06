@@ -80,3 +80,11 @@ if (NOT MSVC)
         $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-unused-parameter>
         $<$<COMPILE_LANGUAGE:C,CXX>:-Wno-missing-field-initializers>)
 endif()
+
+# RenHDrum (HD Rumble / DualSense haptics) runs from renhdrum.dll on Windows
+if (WIN32 AND RENHDRUM_RUNTIME AND EXISTS "${RENHDRUM_RUNTIME}")
+    add_custom_command(TARGET yuzu-cmd POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${RENHDRUM_RUNTIME}" "$<TARGET_FILE_DIR:yuzu-cmd>/renhdrum.dll"
+        VERBATIM)
+endif()

@@ -193,6 +193,8 @@ void EmulatedController::LoadDevices() {
     output_params[4] = android_params;
     output_params[LeftIndex].Set("output", true);
     output_params[RightIndex].Set("output", true);
+    output_params[LeftIndex].Set("pad", 0);
+    output_params[RightIndex].Set("pad", 1);
     output_params[2].Set("output", true);
     output_params[3].Set("output", true);
     output_params[4].Set("output", true);
@@ -1259,18 +1261,12 @@ bool EmulatedController::SetVibration(DeviceIndex device_index, const VibrationV
     }
 
     if (!Settings::values.enable_accurate_vibrations.GetValue()) {
-        using std::chrono::duration_cast;
-        using std::chrono::milliseconds;
         using std::chrono::steady_clock;
 
         const auto now = steady_clock::now();
 
-        // Filter out non-zero vibrations that are within 15ms of each other.
-        if ((vibration.low_amplitude != 0.0f || vibration.high_amplitude != 0.0f) &&
-            duration_cast<milliseconds>(now - last_vibration_timepoint[index]) < milliseconds(15)) {
-            return false;
-        }
-
+        // RenHDrum manages stateful pacing, click pulses, and token bucket.
+        // Do not drop short pulse vibrations (<= 20 ms) here so they reach RenHDrum.
         last_vibration_timepoint[index] = now;
     }
 
