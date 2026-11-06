@@ -771,21 +771,27 @@ private:
             // Like the other pads here: callers already serialize Init/Cleanup (SetSDLJoystick holds renhdrum_mutex)
             steam_triton = true;
             steam_tone = {};
+            steam_grips = {};
             pad_name = "Steam Controller";
             LOG_INFO(Input, "Initialized Steam Controller HD tones for {:04X}:{:04X}", vid, pid);
-            PublishPad({pad_name, false, is_bluetooth, "Steam HD tones", false});
+            PublishPad({pad_name, false, is_bluetooth, SteamSplitBands() ? "Steam HD · 4 motors" : "Steam HD tones", false});
         }
     }
 
-    // Steam Controller HD rumble. Each side gets a tone at the strongest Switch band's frequency
-    // (output report 0x83, the controller's own tone generator) instead of SDL's plain 2-motor
-    // rumble. Tones last 60 ms and are refreshed while the game keeps vibrating, so a stalled
-    // emulator never leaves the pad buzzing.
+    // Steam Controller HD rumble over its four LRAs, two bands per side:
+    //  - low band  -> grip motor of that side: rumble report 0x80, both grips in one report.
+    //    Amplitude only, the firmware picks the waveform. Sent here rather than through
+    //    SDL_RumbleJoystick, which skips repeated values while the pad stops after ~50 ms.
+    //  - high band -> trackpad motor of that side: tone report 0x83 at the game's own frequency.
+    // hdrumble_steam_mode.txt = "tones" goes back to one tone per side (stronger band) and no grips.
+    // Everything is sent for 60 ms and refreshed while the game vibrates: the pad stops by itself
+    // (and the firmware's ~50 ms safety timeout never cuts in) if the emulator stalls.
+    static constexpr u8 STEAM_REPORT_RUMBLE = 0x80;
     static constexpr u8 STEAM_REPORT_COMMAND = 0x82;
     static constexpr u8 STEAM_REPORT_LFO_TONE = 0x83;
-    static constexpr int64_t STEAM_TONE_MIN_GAP_US = 8'000;
-    static constexpr int64_t STEAM_TONE_REFRESH_US = 30'000;
-    static constexpr u16 STEAM_TONE_DURATION_MS = 60;
+    static constexpr int64_t STEAM_MIN_GAP_US = 8'000;
+    static constexpr int64_t STEAM_REFRESH_US = 30'000;
+    static constexpr u16 STEAM_DURATION_MS = 60;
 
     struct SteamToneSide {
         bool on{false};
@@ -794,62 +800,133 @@ private:
         int64_t last_write_us{0};
     };
 
+    struct SteamGrips {
+        std::array<u16, 2> speed{};      // what the game asks for now, per side
+        std::array<u16, 2> sent_speed{}; // what the pad is running
+        int64_t last_write_us{0};
+    };
+
+    // Decides the tone report for one side (under renhdrum_mutex). 0 = nothing to send.
+    int BuildSteamTone(std::array<u8, 10>& report, int64_t now_us, bool is_right, f32 amplitude,
+                       f32 frequency_hz) {
+        auto& side = steam_tone[is_right ? 1 : 0];
+        const u8 side_id = is_right ? 0x02 : 0x01;
+        if (amplitude < 0.02f) {
+            if (!side.on) {
+                return 0;
+            }
+            side.on = false;
+            side.last_write_us = now_us;
+            report = {STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
+            return 4;
+        }
+        const u16 frequency = static_cast<u16>(std::clamp(frequency_hz, 40.0f, 1250.0f));
+        const s8 gain_db = static_cast<s8>(
+            std::clamp(std::lround(20.0f * std::log10(amplitude)) + SteamGainOffsetDb(), -40L, 6L));
+        const bool changed = !side.on || gain_db != side.gain_db ||
+                             std::abs(frequency - side.frequency) > side.frequency / 32;
+        const int64_t since = now_us - side.last_write_us;
+        if (since < STEAM_MIN_GAP_US || (!changed && since < STEAM_REFRESH_US)) {
+            return 0;
+        }
+        side = {true, frequency, gain_db, now_us};
+        report = {STEAM_REPORT_LFO_TONE,
+                  side_id,
+                  static_cast<u8>(gain_db),
+                  static_cast<u8>(frequency & 0xFF),
+                  static_cast<u8>(frequency >> 8),
+                  static_cast<u8>(STEAM_DURATION_MS & 0xFF),
+                  static_cast<u8>(STEAM_DURATION_MS >> 8),
+                  0, 0, 0 /* no LFO */};
+        return 10;
+    }
+
+    // Decides the grip rumble write (under renhdrum_mutex): both grips go in one report.
+    bool BuildSteamGrips(int64_t now_us, bool is_right, f32 amplitude, std::array<u16, 2>& out) {
+        auto& grips = steam_grips;
+        grips.speed[is_right ? 1 : 0] =
+            amplitude < 0.02f ? 0 : static_cast<u16>(std::clamp(amplitude, 0.0f, 1.0f) * 0xFFFF);
+        const bool running = grips.sent_speed[0] != 0 || grips.sent_speed[1] != 0;
+        const bool wanted = grips.speed[0] != 0 || grips.speed[1] != 0;
+        if (!running && !wanted) {
+            return false;
+        }
+        const auto moved = [](u16 a, u16 b) { return std::abs(int{a} - int{b}) > 0xFFFF / 64; };
+        const bool changed = moved(grips.speed[0], grips.sent_speed[0]) ||
+                             moved(grips.speed[1], grips.sent_speed[1]) || (running && !wanted);
+        const int64_t since = now_us - grips.last_write_us;
+        if ((since < STEAM_MIN_GAP_US && wanted) || (!changed && since < STEAM_REFRESH_US)) {
+            return false;
+        }
+        grips.sent_speed = grips.speed;
+        grips.last_write_us = now_us;
+        out = grips.speed;
+        return true;
+    }
+
     bool SteamTritonVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
-        std::array<u8, 10> report{};
-        int size = 0;
+        std::array<u8, 10> tone{};
+        int tone_size = 0;
+        std::array<u16, 2> grip_speed{};
+        bool grip_write = false;
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!steam_triton) {
                 return false;
             }
-            auto& side = steam_tone[is_right ? 1 : 0];
             const f32 low = std::clamp(v.low_amplitude, 0.0f, 1.0f);
             const f32 high = std::clamp(v.high_amplitude, 0.0f, 1.0f);
-            const f32 amplitude = std::min(1.0f, std::max(low, high) + 0.5f * std::min(low, high));
-            const u8 side_id = is_right ? 0x02 : 0x01;
-
-            if (amplitude < 0.02f) {
-                if (!side.on) {
-                    return true;
-                }
-                side.on = false;
-                side.last_write_us = now_us;
-                report = {STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
-                size = 4;
+            if (SteamSplitBands()) {
+                grip_write = BuildSteamGrips(now_us, is_right, low, grip_speed);
+                tone_size = BuildSteamTone(tone, now_us, is_right, high, v.high_frequency);
             } else {
-                const f32 band_frequency = low >= high ? v.low_frequency : v.high_frequency;
-                const u16 frequency = static_cast<u16>(std::clamp(band_frequency, 40.0f, 1250.0f));
-                const s8 gain_db = static_cast<s8>(
-                    std::clamp(std::lround(20.0f * std::log10(amplitude)) + SteamGainOffsetDb(), -40L, 6L));
-                const bool changed = !side.on || gain_db != side.gain_db ||
-                                     std::abs(frequency - side.frequency) > side.frequency / 32;
-                const int64_t since = now_us - side.last_write_us;
-                if (since < STEAM_TONE_MIN_GAP_US || (!changed && since < STEAM_TONE_REFRESH_US)) {
-                    return true;
-                }
-                side = {true, frequency, gain_db, now_us};
-                report = {STEAM_REPORT_LFO_TONE,
-                          side_id,
-                          static_cast<u8>(gain_db),
-                          static_cast<u8>(frequency & 0xFF),
-                          static_cast<u8>(frequency >> 8),
-                          static_cast<u8>(STEAM_TONE_DURATION_MS & 0xFF),
-                          static_cast<u8>(STEAM_TONE_DURATION_MS >> 8),
-                          0, 0, 0 /* no LFO */};
-                size = 10;
+                const f32 amplitude = std::min(1.0f, std::max(low, high) + 0.5f * std::min(low, high));
+                tone_size = BuildSteamTone(tone, now_us, is_right, amplitude,
+                                           low >= high ? v.low_frequency : v.high_frequency);
             }
         }
-        if (!SDL_SendJoystickEffect(sdl_joystick.get(), report.data(), size)) {
+        if (grip_write) {
+            SendSteamGrips(grip_speed[0], grip_speed[1]);
+        }
+        if (tone_size && !SDL_SendJoystickEffect(sdl_joystick.get(), tone.data(), tone_size)) {
             LOG_DEBUG(Input, "Steam Controller haptic report failed: {}", SDL_GetError());
         }
         return true;
     }
 
+    // Report 0x80: type, intensity (u16), then speed (u16) + gain (s8) for the left and right grip
+    void SendSteamGrips(u16 left, u16 right) {
+        const std::array<u8, 10> report{STEAM_REPORT_RUMBLE, 0, 0, 0,
+                                        static_cast<u8>(left & 0xFF), static_cast<u8>(left >> 8), 0,
+                                        static_cast<u8>(right & 0xFF), static_cast<u8>(right >> 8), 0};
+        if (!SDL_SendJoystickEffect(sdl_joystick.get(), report.data(), static_cast<int>(report.size()))) {
+            LOG_DEBUG(Input, "Steam Controller grip rumble failed: {}", SDL_GetError());
+        }
+    }
+
     void StopSteamTones() {
+        SendSteamGrips(0, 0);
+        SDL_RumbleJoystick(sdl_joystick.get(), 0, 0, 0);
         for (const u8 side_id : {u8{0x01}, u8{0x02}}) {
             const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0, 0};
             SDL_SendJoystickEffect(sdl_joystick.get(), off.data(), static_cast<int>(off.size()));
         }
+    }
+
+    // hdrumble_steam_mode.txt next to lichii.exe: "split" (default, 4 motors) or "tones". Read once.
+    static bool SteamSplitBands() {
+        static const bool split = [] {
+            std::string mode = "split";
+            if (const char* base = SDL_GetBasePath()) {
+                std::ifstream file(std::string(base) + "hdrumble_steam_mode.txt");
+                file >> mode;
+            }
+            const bool is_split = mode != "tones";
+            LOG_INFO(Input, "Steam Controller HD rumble: {}",
+                     is_split ? "4 motors (low band grips, high band trackpads)" : "one tone per side");
+            return is_split;
+        }();
+        return split;
     }
 
     // Extra gain for the Steam Controller tones, in dB, from hdrumble_steam_gain_db.txt next to
@@ -1202,6 +1279,7 @@ private:
     RenHdcXboxRumble* xbox_rumble{nullptr};
     bool steam_triton{false};
     std::array<SteamToneSide, 2> steam_tone{};
+    SteamGrips steam_grips{};
     std::mutex pending_vibration_mutex;
     std::optional<Common::Input::VibrationStatus> pending_vibration;
     SDL_AudioStream* ds_audio_stream{nullptr};

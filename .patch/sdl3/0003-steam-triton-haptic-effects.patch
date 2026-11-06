@@ -1,8 +1,62 @@
 diff --git a/src/joystick/hidapi/SDL_hidapi_steam_triton.c b/src/joystick/hidapi/SDL_hidapi_steam_triton.c
-index 79bcc32..1700981 100644
+index 79bcc32..2e63a03 100644
 --- a/src/joystick/hidapi/SDL_hidapi_steam_triton.c
 +++ b/src/joystick/hidapi/SDL_hidapi_steam_triton.c
-@@ -475,7 +475,20 @@ static bool HIDAPI_DriverSteamTriton_SetJoystickLED(SDL_HIDAPI_Device *device, S
+@@ -96,8 +96,15 @@ typedef struct
+     Uint64 sensor_timestamp_ns;
+     Uint64 last_button_state;
+     Uint64 last_lizard_update;
++    Uint16 low_frequency_rumble;
++    Uint16 high_frequency_rumble;
++    Uint64 last_rumble_time;
+ } SDL_DriverSteamTriton_Context;
+ 
++// The controller stops rumbling by itself after about 50 ms, so rumble is resent every 40 ms
++// (as in upstream SDL)
++#define TRITON_RUMBLE_RESEND_INTERVAL_MS 40
++
+ static bool IsProteusDongle(Uint16 product_id)
+ {
+     return (product_id == USB_PRODUCT_VALVE_STEAM_PROTEUS_DONGLE ||
+@@ -354,6 +361,8 @@ static void HIDAPI_DriverSteamTriton_SetDevicePlayerIndex(SDL_HIDAPI_Device *dev
+ {
+ }
+ 
++static bool HIDAPI_DriverSteamTriton_RumbleJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, Uint16 low_frequency_rumble, Uint16 high_frequency_rumble);
++
+ static bool HIDAPI_DriverSteamTriton_UpdateDevice(SDL_HIDAPI_Device *device)
+ {
+     SDL_DriverSteamTriton_Context *ctx = (SDL_DriverSteamTriton_Context *)device->context;
+@@ -369,6 +378,11 @@ static bool HIDAPI_DriverSteamTriton_UpdateDevice(SDL_HIDAPI_Device *device)
+             DisableSteamTritonLizardMode(device->dev);
+             ctx->last_lizard_update = now;
+         }
++
++        if ((ctx->low_frequency_rumble || ctx->high_frequency_rumble) &&
++            (now - ctx->last_rumble_time) >= TRITON_RUMBLE_RESEND_INTERVAL_MS) {
++            HIDAPI_DriverSteamTriton_RumbleJoystick(device, joystick, ctx->low_frequency_rumble, ctx->high_frequency_rumble);
++        }
+     }
+ 
+     for (;;) {
+@@ -436,10 +450,15 @@ static bool HIDAPI_DriverSteamTriton_OpenJoystick(SDL_HIDAPI_Device *device, SDL
+ 
+ static bool HIDAPI_DriverSteamTriton_RumbleJoystick(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, Uint16 low_frequency_rumble, Uint16 high_frequency_rumble)
+ {
++    SDL_DriverSteamTriton_Context *ctx = (SDL_DriverSteamTriton_Context *)device->context;
+     int rc;
+ 
++    ctx->low_frequency_rumble = low_frequency_rumble;
++    ctx->high_frequency_rumble = high_frequency_rumble;
++    ctx->last_rumble_time = SDL_GetTicks();
++
+     //RKRK Not sure about size. Probably 64+1 is OK for ORs
+-    Uint8 buffer[HID_RUMBLE_OUTPUT_REPORT_BYTES];
++    Uint8 buffer[HID_RUMBLE_OUTPUT_REPORT_BYTES] = { 0 };
+     OutputReportMsg *msg = (OutputReportMsg *)(buffer);
+ 
+ 	msg->report_id = ID_OUT_REPORT_HAPTIC_RUMBLE;
+@@ -475,7 +494,20 @@ static bool HIDAPI_DriverSteamTriton_SetJoystickLED(SDL_HIDAPI_Device *device, S
  
  static bool HIDAPI_DriverSteamTriton_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
  {
