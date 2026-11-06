@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <numbers>
@@ -612,9 +614,39 @@ public:
         SDL_SendJoystickEffect(joystick, packet, sizeof(packet));
     }
 
+    // Vibration boost for the RenHDrum paths, read once from hdrumble_boost.txt next to lichii.exe
+    // (a number from 1.0 to 4.0; 1.0 or no file = what the game asks for). RenHDrum sends the game's
+    // amplitude as is, without the curve the standard rumble applies, so quiet effects feel weak.
+    // a' = 1 - (1 - a)^boost lifts quiet and medium effects while 0 stays 0 and 1.0 (the most the
+    // motors accept) stays the top, so strong effects do not all flatten into one level.
+    static float RenHDrumBoost() {
+        static const float boost = [] {
+            float value = 1.0f;
+            if (const char* base = SDL_GetBasePath()) {
+                std::ifstream file(std::string(base) + "hdrumble_boost.txt");
+                if (!(file >> value) || !std::isfinite(value)) {
+                    value = 1.0f;
+                }
+            }
+            value = std::clamp(value, 1.0f, 4.0f);
+            LOG_INFO(Input, "RenHDrum vibration boost: {:.2f}", value);
+            return value;
+        }();
+        return boost;
+    }
+
+    static f32 BoostAmplitude(f32 amplitude, float boost) {
+        amplitude = std::clamp(amplitude, 0.0f, 1.0f);
+        return boost == 1.0f ? amplitude : 1.0f - std::pow(1.0f - amplitude, boost);
+    }
+
     // Called on the HLE thread. Returns true when RenHDrum took the vibration (Switch HD engine, or
     // DualSense haptics audio running); false = use the standard rumble below.
-    bool RenHDrumVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
+    bool RenHDrumVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& raw) {
+        const float boost = RenHDrumBoost();
+        Common::Input::VibrationStatus v = raw;
+        v.low_amplitude = BoostAmplitude(raw.low_amplitude, boost);
+        v.high_amplitude = BoostAmplitude(raw.high_amplitude, boost);
         if (v.low_amplitude > 0.01f || v.high_amplitude > 0.01f) {
             last_vibrate_us.store(now_us, std::memory_order_relaxed);
         }
