@@ -1,0 +1,171 @@
+name: lichii-renhdrum-linux
+
+# Lichii (nx2) + RenHDrum v0.2.1 HD Rumble, Linux x86_64: AppImage (self-contained, glibc 2.39+:
+# SteamOS 3.6+, Ubuntu 24.04, Fedora 40, Arch) and a tar.gz (needs Qt 6 installed).
+# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
+on:
+  workflow_dispatch:
+    inputs:
+      renhdrum_ref:
+        description: RenHDrum tag or commit to build
+        default: v0.2.1
+  push:
+    branches:
+      - renhdrum
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: linux-x86_64 + RenHDrum
+    runs-on: ubuntu-24.04
+    env:
+      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.2.1' }}
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 3G
+    steps:
+      - name: Check out Lichii
+        uses: actions/checkout@v5
+
+      - name: Check out RenHDrum
+        uses: actions/checkout@v5
+        with:
+          repository: trzz1214/RenHDrum
+          ref: ${{ env.RENHDRUM_REF }}
+          path: _renhdrum
+
+      # librenhdrum.a in _renhdrum/target/release, linked statically
+      - name: Build RenHDrum
+        working-directory: _renhdrum
+        run: |
+          set -euo pipefail
+          cargo build --release
+          ls -la target/release/librenhdrum.a
+
+      # Lichii's own Linux packages, plus what SDL3 needs to build from source (it is always built
+      # with the HD Rumble patches): X11, Wayland, libdecor, D-Bus, PipeWire/PulseAudio/ALSA, udev.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf cmake g++ gcc git glslang-tools libglu1-mesa-dev \
+            libpulse-dev libtool libudev-dev libxkbcommon-x11-0 \
+            mesa-common-dev nasm ninja-build qt6-base-private-dev \
+            qt6-charts-dev qt6-tools-dev libavfilter-dev libavcodec-dev \
+            libswscale-dev pkg-config zlib1g-dev libva-dev libvdpau-dev \
+            spirv-tools spirv-headers libusb-1.0-0-dev \
+            libboost-dev libboost-fiber-dev libboost-context-dev \
+            libopus-dev libasound2-dev ccache \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
+            libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl-dev libgles-dev libdrm-dev libgbm-dev libdbus-1-dev libpipewire-0.3-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtcharts
+          cache: true
+
+      - name: Restore CPM downloads
+        uses: actions/cache@v5
+        with:
+          path: .cache/cpm
+          key: cpm-renhdrum-linux-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpm-renhdrum-linux-
+            cpm-linux-x86_64-v2-
+
+      - name: Restore compiler objects
+        uses: actions/cache@v5
+        with:
+          path: .ccache
+          key: objects-renhdrum-linux-${{ github.sha }}
+          restore-keys: |
+            objects-renhdrum-linux-
+            objects-linux-x86_64-v2-
+
+      - name: Configure
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
+            -DYUZU_TESTS=OFF \
+            -DYUZU_CMD=ON \
+            -DYUZU_ROOM=OFF \
+            -DYUZU_ROOM_STANDALONE=OFF \
+            -DYUZU_USE_BUNDLED_QT=OFF \
+            "-DCMAKE_PREFIX_PATH=$QT_ROOT_DIR" \
+            -DVulkanHeaders_FORCE_BUNDLED=ON \
+            -DVulkanUtilityLibraries_FORCE_BUNDLED=ON \
+            -DENABLE_UPDATE_CHECKER=OFF \
+            -DLICHII_BUILD_TAG=renhdrum-${{ github.run_number }} \
+            -DLICHII_BUILD_PLATFORM=linux-x86_64 \
+            -DUSE_DISCORD_PRESENCE=OFF \
+            -DUSE_CCACHE=ON \
+            "-DRENHDRUM_DIR=$GITHUB_WORKSPACE/_renhdrum"
+
+      - name: Build
+        run: |
+          ccache --zero-stats
+          cmake --build build/release --target yuzu yuzu-cmd --parallel
+          ccache --show-stats
+
+      # GitHub artifacts drop the executable bit, so the programs go in a tar.gz
+      - name: Package tar.gz
+        run: |
+          set -euo pipefail
+          strip build/release/bin/lichii build/release/bin/eden-cli
+          cp _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
+          cp _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
+          tar -czf lichii-renhdrum-linux-x86_64.tar.gz -C build/release/bin \
+            lichii eden-cli RENHDRUM-LICENSE-MIT.txt RENHDRUM-LICENSE-APACHE.txt
+
+      # Same AppImage as Lichii's own releases: linuxdeploy bundles everything but the base system
+      # libraries (glibc, X11/Wayland client libraries, GPU driver, Vulkan loader).
+      - name: Package AppImage
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/linuxdeploy"
+          mkdir -p "$tools"
+          curl -fsSL -o "$tools/linuxdeploy-x86_64.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          curl -fsSL -o "$tools/linuxdeploy-plugin-qt-x86_64.AppImage" \
+            https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x "$tools"/*.AppImage
+          icon="$RUNNER_TEMP/io.github.zortos293.lichii.png"
+          cp dist/lichii.png "$icon"
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export QMAKE="$QT_ROOT_DIR/bin/qmake"
+          export EXTRA_QT_MODULES=waylandcompositor
+          export EXTRA_PLATFORM_PLUGINS='libqwayland-egl.so;libqwayland-generic.so'
+          export LDAI_VERSION="renhdrum-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}"
+          export LDAI_OUTPUT="lichii-renhdrum-linux-x86_64.AppImage"
+          export OUTPUT="$LDAI_OUTPUT"
+          export ARCH=x86_64
+          "$tools/linuxdeploy-x86_64.AppImage" --appdir AppDir \
+            --executable build/release/bin/lichii \
+            --executable build/release/bin/eden-cli \
+            --desktop-file dist/io.github.zortos293.lichii.desktop \
+            --icon-file "$icon" \
+            --plugin qt \
+            --output appimage
+          test -s "$LDAI_OUTPUT"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: lichii-renhdrum-linux-x86_64-${{ github.sha }}
+          path: |
+            lichii-renhdrum-linux-x86_64.AppImage
+            lichii-renhdrum-linux-x86_64.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
