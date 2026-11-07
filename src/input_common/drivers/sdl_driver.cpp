@@ -700,6 +700,9 @@ public:
         if (ValveVibrate(now_us, is_right, v)) {
             return true;
         }
+        if (Switch2Vibrate(now_us, is_right, v)) {
+            return true;
+        }
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!renhdrum_engine) {
@@ -739,6 +742,22 @@ private:
 
         // Nintendo Switch controllers (VID 0x057E)
         if (vid == 0x057E) {
+            // Switch 2 Pro Controller / Joy-Con 2 (SDL supports them over USB only): native HD rumble
+            // with the game's frequencies, through SDL patch 0005
+            if (pid == 0x2069 || pid == 0x2066 || pid == 0x2067) {
+                pad_name = pid == 0x2069 ? "Switch 2 Pro Controller"
+                           : pid == 0x2067 ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)";
+                if (!HdRumbleOn()) {
+                    LOG_INFO(Input, "HD Rumble off: {} {:04X}:{:04X} uses plain rumble", pad_name, vid, pid);
+                    PublishPad({pad_name, false, false, "off", false});
+                    return;
+                }
+                switch2_hd = true;
+                switch2_state = {};
+                LOG_INFO(Input, "Initialized Switch 2 HD rumble for {:04X}:{:04X}", vid, pid);
+                PublishPad({pad_name, false, false, "Switch 2 HD rumble", false});
+                return;
+            }
             if (pid == 0x2009 || pid == 0x2006 || pid == 0x2007) {
                 const bool is_bluetooth =
                     (SDL_GetJoystickConnectionState(sdl_joystick.get()) == SDL_JOYSTICK_CONNECTION_WIRELESS);
@@ -837,6 +856,82 @@ private:
             const char* mode = kind == ValvePad::Triton && SteamSplitBands() ? "Valve HD · 4 motors"
                                                                              : "Valve HD tones";
             PublishPad({pad_name, false, is_bluetooth, mode, false});
+        }
+    }
+
+    // Switch 2 Pro Controller / Joy-Con 2: HD rumble 2 takes, per motor, two bands with their own
+    // frequency and amplitude, like Switch 1 games send. Frequency codes are 9 bits, logarithmic:
+    // 256 per octave, 0x0E1 = 160 Hz (from joycon2-dongle by MukiEX, GPL-3.0), so they cover about
+    // 87-345 Hz; frequencies outside that range are clamped to its ends. The bit above the code is
+    // reported as an unconfirmed "tone" flag, so it stays 0. Amplitudes are 10 bits, capped below
+    // full scale, as SDL does, because full power can stress the motors.
+    struct Switch2Motor {
+        u16 lo_freq{0x0E1};
+        u16 lo_amp{0};
+        u16 hi_freq{0x1E1};
+        u16 hi_amp{0};
+        bool operator==(const Switch2Motor&) const = default;
+    };
+    struct Switch2State {
+        std::array<Switch2Motor, 2> motor{};
+        std::array<Switch2Motor, 2> sent{};
+        int64_t last_send_us{0};
+    };
+    static constexpr int64_t SWITCH2_MIN_GAP_US = 5'000;
+    static constexpr int64_t SWITCH2_REFRESH_US = 30'000; // SDL holds each effect for 60 ms
+    static constexpr f32 SWITCH2_LOW_AMP_MAX = 0.70f * 1023.0f;
+    static constexpr f32 SWITCH2_HIGH_AMP_MAX = 0.60f * 1023.0f;
+
+    static u16 Switch2FrequencyCode(f32 hz) {
+        const f32 code = 225.0f + 256.0f * std::log2(std::clamp(hz, 40.0f, 1252.0f) / 160.0f);
+        return static_cast<u16>(std::clamp(std::lround(code), 1L, 511L));
+    }
+
+    bool Switch2Vibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
+        Switch2State state{};
+        SDL_Joystick* joystick = nullptr;
+        {
+            std::scoped_lock lock{renhdrum_mutex};
+            if (!switch2_hd) {
+                return false;
+            }
+            joystick = sdl_joystick.get();
+            if (!joystick) {
+                return true;
+            }
+            auto& motor = switch2_state.motor[is_right ? 1 : 0];
+            motor.lo_freq = Switch2FrequencyCode(v.low_frequency);
+            motor.hi_freq = Switch2FrequencyCode(v.high_frequency);
+            motor.lo_amp = static_cast<u16>(std::clamp(v.low_amplitude, 0.0f, 1.0f) * SWITCH2_LOW_AMP_MAX);
+            motor.hi_amp = static_cast<u16>(std::clamp(v.high_amplitude, 0.0f, 1.0f) * SWITCH2_HIGH_AMP_MAX);
+            const bool changed = switch2_state.motor != switch2_state.sent;
+            const bool playing = switch2_state.motor[0].lo_amp || switch2_state.motor[0].hi_amp ||
+                                 switch2_state.motor[1].lo_amp || switch2_state.motor[1].hi_amp;
+            const int64_t since = now_us - switch2_state.last_send_us;
+            if (since < SWITCH2_MIN_GAP_US || (!changed && (!playing || since < SWITCH2_REFRESH_US))) {
+                return true;
+            }
+            switch2_state.sent = switch2_state.motor;
+            switch2_state.last_send_us = now_us;
+            state = switch2_state;
+        }
+        SendSwitch2Rumble(joystick, state.motor);
+        return true;
+    }
+
+    // SDL patch 0005 effect: "HDR2", flags, then per motor low freq, low amp, high freq, high amp
+    static void SendSwitch2Rumble(SDL_Joystick* joystick, const std::array<Switch2Motor, 2>& motors) {
+        std::array<u8, 21> effect{'H', 'D', 'R', '2', 0};
+        for (size_t i = 0; i < motors.size(); ++i) {
+            const auto& m = motors[i];
+            u8* out = &effect[5 + i * 8];
+            for (const u16 value : {m.lo_freq, m.lo_amp, m.hi_freq, m.hi_amp}) {
+                *out++ = static_cast<u8>(value & 0xFF);
+                *out++ = static_cast<u8>(value >> 8);
+            }
+        }
+        if (!SDL_SendJoystickEffect(joystick, effect.data(), static_cast<int>(effect.size()))) {
+            LOG_DEBUG(Input, "Switch 2 HD rumble failed: {}", SDL_GetError());
         }
     }
 
@@ -1433,6 +1528,12 @@ private:
             renhdrum_xbox_rumble_destroy(xbox_rumble);
             xbox_rumble = nullptr;
         }
+        if (switch2_hd) {
+            if (sdl_joystick) {
+                SendSwitch2Rumble(sdl_joystick.get(), {});
+            }
+            switch2_hd = false;
+        }
         if (valve_pad != ValvePad::None) {
             if (sdl_joystick) {
                 StopValveHaptics(sdl_joystick.get(), valve_pad);
@@ -1458,6 +1559,8 @@ private:
     std::mutex stats_mutex;
     VibrationStats vibration_stats{};
     ValvePad valve_pad{ValvePad::None};
+    bool switch2_hd{false};
+    Switch2State switch2_state{};
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};
     std::mutex pending_vibration_mutex;
