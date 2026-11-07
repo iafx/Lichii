@@ -1,0 +1,96 @@
+diff --git a/include/renhdrum.h b/include/renhdrum.h
+index cd92ef1..e4e8437 100644
+--- a/include/renhdrum.h
++++ b/include/renhdrum.h
+@@ -227,6 +227,9 @@ int32_t renhdrum_engine_push_half_sample(
+ int32_t renhdrum_engine_tick(RenHdcEngine *engine, int64_t now_us, uint8_t *out_packet10);
+ 
+ RenHdcDualSenseDsp *renhdrum_dualsense_dsp_create(int32_t volume_percent, bool crisp_notes);
++/* Changes the haptics volume while running: 10-125 % (100 % = calibrated ceiling, 125 % = the
++ * actuators' full scale). Returns 1 on success. Lichii addition. */
++int32_t renhdrum_dualsense_dsp_set_volume(RenHdcDualSenseDsp *dsp, int32_t volume_percent);
+ void renhdrum_dualsense_dsp_destroy(RenHdcDualSenseDsp *dsp);
+ int32_t renhdrum_dualsense_dsp_set_target(
+     RenHdcDualSenseDsp *dsp,
+diff --git a/src/dualsense/haptics.rs b/src/dualsense/haptics.rs
+index 7d83c28..4812537 100644
+--- a/src/dualsense/haptics.rs
++++ b/src/dualsense/haptics.rs
+@@ -23,6 +23,9 @@ pub struct DualSenseVoice {
+ 
+ /// Hard ceiling of the output (full scale = 1.0) to protect the actuators.
+ pub const DUALSENSE_OUTPUT_CEILING: f32 = 0.8;
++/// Highest haptics volume: 100 % is the calibrated ceiling above, 125 % reaches the actuators'
++/// full scale (0.8 x 1.25 = 1.0), for users who choose to go past the calibration.
++pub const DUALSENSE_MAX_VOLUME: i32 = 125;
+ pub const DUALSENSE_AMPLITUDE_EXPONENT: f64 = 0.5;
+ pub const DUALSENSE_SAMPLE_RATE: i32 = 48000;
+ pub const DUALSENSE_CHANNELS: usize = 4;
+@@ -151,7 +154,7 @@ impl DualSenseHapticsDsp {
+     }
+ 
+     pub fn set_volume(&mut self, volume_percent: i32) {
+-        let vol = volume_percent.clamp(10, 100);
++        let vol = volume_percent.clamp(10, DUALSENSE_MAX_VOLUME);
+         self.volume_percent = vol;
+         self.gain = DUALSENSE_OUTPUT_CEILING * vol as f32 / 100.0;
+     }
+@@ -418,6 +421,16 @@ mod tests {
+         assert!((buf[47 * DUALSENSE_CHANNELS + 2] - 0.0797727).abs() < 1e-5);
+     }
+ 
++    #[test]
++    fn test_volume_reaches_full_scale_at_most() {
++        let mut dsp = DualSenseHapticsDsp::new(100, false);
++        assert!((dsp.gain - DUALSENSE_OUTPUT_CEILING).abs() < 1e-6);
++        dsp.set_volume(DUALSENSE_MAX_VOLUME);
++        assert!((dsp.gain - 1.0).abs() < 1e-6);
++        dsp.set_volume(400);
++        assert!((dsp.gain - 1.0).abs() < 1e-6);
++    }
++
+     #[test]
+     fn test_dualsense_haptics_dsp_fills_pcm() {
+         let mut dsp = DualSenseHapticsDsp::new(100, false);
+diff --git a/src/dualsense/mod.rs b/src/dualsense/mod.rs
+index 085e46d..534633f 100644
+--- a/src/dualsense/mod.rs
++++ b/src/dualsense/mod.rs
+@@ -12,7 +12,7 @@ pub use haptics::{
+     crisp_side, curve, make_side, DualSenseHapticsDsp, DualSenseSide, DualSenseVoice,
+     DUALSENSE_AMPLITUDE_EXPONENT, DUALSENSE_BUFFER_FRAMES, DUALSENSE_CHANNELS,
+     DUALSENSE_DEFAULT_HIGH_FREQUENCY, DUALSENSE_DEFAULT_LOW_FREQUENCY, DUALSENSE_LEFT_CHANNEL,
+-    DUALSENSE_MAX_FREQUENCY, DUALSENSE_MIN_FREQUENCY, DUALSENSE_OUTPUT_CEILING,
++    DUALSENSE_MAX_FREQUENCY, DUALSENSE_MAX_VOLUME, DUALSENSE_MIN_FREQUENCY, DUALSENSE_OUTPUT_CEILING,
+     DUALSENSE_RIGHT_CHANNEL, DUALSENSE_SAMPLE_RATE, DUALSENSE_SMOOTHING_MS,
+ };
+ pub use settings::{DualSenseSettings, DualSenseSettingsFull};
+diff --git a/src/ffi.rs b/src/ffi.rs
+index e5d1260..f518b15 100644
+--- a/src/ffi.rs
++++ b/src/ffi.rs
+@@ -820,6 +820,24 @@ pub extern "C" fn renhdrum_dualsense_dsp_create(
+     }))
+ }
+ 
++/// Changes the haptics volume while the DSP runs (10-125 %; 100 % = calibrated ceiling, 125 % =
++/// actuators' full scale). Returns 1 on success, 0 for a null DSP.
++#[no_mangle]
++pub unsafe extern "C" fn renhdrum_dualsense_dsp_set_volume(
++    dsp: *mut RenHdcDualSenseDsp,
++    volume_percent: i32,
++) -> i32 {
++    let Some(dsp) = (unsafe { dsp.as_ref() }) else {
++        return 0;
++    };
++    if let Ok(mut inner) = dsp.inner.lock() {
++        inner.set_volume(volume_percent);
++        1
++    } else {
++        0
++    }
++}
++
+ #[no_mangle]
+ pub unsafe extern "C" fn renhdrum_dualsense_dsp_destroy(dsp: *mut RenHdcDualSenseDsp) {
+     if !dsp.is_null() {

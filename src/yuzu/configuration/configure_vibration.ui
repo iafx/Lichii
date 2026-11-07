@@ -99,7 +99,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -151,7 +151,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -203,7 +203,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -255,7 +255,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -325,7 +325,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -377,7 +377,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -429,7 +429,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -481,7 +481,7 @@
                <number>1</number>
               </property>
               <property name="maximum">
-               <number>150</number>
+               <number>400</number>
               </property>
               <property name="value">
                <number>100</number>
@@ -598,7 +598,65 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="2">
+      <item row="3" column="0">
+       <widget class="QLabel" name="labelDualSenseVolume">
+        <property name="text">
+         <string>DualSense haptics</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QSpinBox" name="spinDualSenseVolume">
+        <property name="toolTip">
+         <string>100% is RenHDrum's calibrated ceiling (80% of the actuators' full scale, chosen to protect them). Up to 125% reaches the actuators' full scale.</string>
+        </property>
+        <property name="suffix">
+         <string>%</string>
+        </property>
+        <property name="minimum">
+         <number>10</number>
+        </property>
+        <property name="maximum">
+         <number>125</number>
+        </property>
+        <property name="singleStep">
+         <number>5</number>
+        </property>
+        <property name="value">
+         <number>100</number>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="labelXboxGain">
+        <property name="text">
+         <string>Xbox One motors</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QSpinBox" name="spinXboxGain">
+        <property name="toolTip">
+         <string>Strength of RenHDrum's Xbox One rumble. Above 100% it grows until the motors reach their maximum.</string>
+        </property>
+        <property name="suffix">
+         <string>%</string>
+        </property>
+        <property name="minimum">
+         <number>25</number>
+        </property>
+        <property name="maximum">
+         <number>1000</number>
+        </property>
+        <property name="singleStep">
+         <number>25</number>
+        </property>
+        <property name="value">
+         <number>100</number>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0" colspan="2">
        <widget class="QCheckBox" name="checkSteamLayered">
         <property name="text">
          <string>Layer both bands on one motor (experimental)</string>

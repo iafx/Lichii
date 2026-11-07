@@ -591,6 +591,13 @@ public:
             }
             joystick = sdl_joystick.get();
         }
+        // Configure Vibration > HD Rumble > Xbox One motors; the motors' maximum caps it
+        const u32 gain = static_cast<u32>(std::clamp(Settings::values.xbox_rumble_gain.GetValue(), 25, 1000));
+        if (gain != 100) {
+            for (auto& motor : motors) {
+                motor = static_cast<uint16_t>((std::min)(motor * gain / 100u, 0xFFFFu));
+            }
+        }
         const bool sent = SDL_RumbleJoystick(joystick, motors[0], motors[1], grip_duration_ms);
         // XInput has no trigger motors, so only the grips decide the retry
         SDL_RumbleJoystickTriggers(joystick, motors[2], motors[3], trigger_duration_ms);
@@ -634,6 +641,12 @@ public:
             joystick = sdl_joystick.get();
         }
         SDL_SendJoystickEffect(joystick, packet, sizeof(packet));
+    }
+
+    // Configure Vibration > HD Rumble > DualSense haptics: 10-125 % (RenHDrum's volume: 100 % =
+    // its calibrated ceiling, 125 % = the actuators' full scale)
+    static int DualSenseHapticsVolume() {
+        return std::clamp(Settings::values.dualsense_haptics_volume.GetValue(), 10, 125);
     }
 
     // Vibration boost for the RenHDrum paths: Configure Vibration > HD Rumble > Boost (100-400 %,
@@ -708,6 +721,11 @@ public:
             if (!renhdrum_engine) {
                 if (!dualsense_dsp) {
                     return false;
+                }
+                // Configure Vibration > HD Rumble > DualSense haptics, applied live
+                if (const int volume = DualSenseHapticsVolume(); volume != ds_volume_applied) {
+                    renhdrum_dualsense_dsp_set_volume(dualsense_dsp, volume);
+                    ds_volume_applied = volume;
                 }
                 renhdrum_dualsense_dsp_set_half_target(dualsense_dsp, is_right, v.low_amplitude,
                                                        v.low_frequency, v.high_amplitude,
@@ -794,7 +812,8 @@ private:
                             "off", false});
                 return;
             }
-            dualsense_dsp = renhdrum_dualsense_dsp_create(100, true);
+            ds_volume_applied = DualSenseHapticsVolume();
+            dualsense_dsp = renhdrum_dualsense_dsp_create(ds_volume_applied, true);
             if (dualsense_dsp) {
                 LOG_INFO(Input, "Initialized RenHDrum DualSense DSP for controller {:04X}:{:04X}", vid, pid);
                 pad_name = pid == 0x0DF2 ? "DualSense Edge" : "DualSense";
@@ -1575,6 +1594,7 @@ private:
     VibrationStats vibration_stats{};
     ValvePad valve_pad{ValvePad::None};
     bool switch2_hd{false};
+    int ds_volume_applied{100};
     Switch2State switch2_state{};
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};

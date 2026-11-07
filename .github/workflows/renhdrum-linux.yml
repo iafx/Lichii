@@ -36,6 +36,16 @@ jobs:
           path: _renhdrum
 
       # librenhdrum.a in _renhdrum/target/release, linked statically
+      # Lichii's changes to RenHDrum (.patch/renhdrum): DualSense haptics volume up to the
+      # actuators' full scale, settable while running
+      - name: Patch RenHDrum
+        run: |
+          set -euo pipefail
+          for patch in .patch/renhdrum/*.patch; do
+            echo "Applying $patch"
+            git -C _renhdrum apply --whitespace=nowarn "$GITHUB_WORKSPACE/$patch"
+          done
+
       - name: Build RenHDrum
         working-directory: _renhdrum
         run: |

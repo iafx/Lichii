@@ -45,6 +45,8 @@ ConfigureVibration::ConfigureVibration(QWidget* parent, Core::HID::HIDCore& hid_
     ui->comboSteamMode->setCurrentIndex(Settings::values.steam_hd_four_motors.GetValue() ? 0 : 1);
     ui->spinSteamTrackpadGain->setValue(Settings::values.steam_trackpad_gain_db.GetValue());
     ui->checkSteamLayered->setChecked(Settings::values.steam_hd_layered.GetValue());
+    ui->spinDualSenseVolume->setValue(Settings::values.dualsense_haptics_volume.GetValue());
+    ui->spinXboxGain->setValue(Settings::values.xbox_rumble_gain.GetValue());
 
     if (!Settings::IsConfiguringGlobal()) {
         ui->checkBoxAccurateVibration->setDisabled(true);
@@ -80,6 +82,8 @@ void ConfigureVibration::ApplyConfiguration() {
         Settings::values.steam_hd_four_motors.SetValue(ui->comboSteamMode->currentIndex() == 0);
         Settings::values.steam_trackpad_gain_db.SetValue(ui->spinSteamTrackpadGain->value());
         Settings::values.steam_hd_layered.SetValue(ui->checkSteamLayered->isChecked());
+        Settings::values.dualsense_haptics_volume.SetValue(ui->spinDualSenseVolume->value());
+        Settings::values.xbox_rumble_gain.SetValue(ui->spinXboxGain->value());
     }
 }
 

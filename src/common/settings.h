@@ -901,6 +901,11 @@ struct Values {
     // Steam Controller (2026): low band on the grip motors and high band on the trackpads (true),
     // or one tone per side on the trackpads (false)
     Setting<bool> steam_hd_four_motors{linkage, true, "steam_hd_four_motors", Category::Controls};
+    // DualSense haptics volume, 10-125 %: 100 % = RenHDrum's calibrated ceiling (80 % of the
+    // actuators' full scale, to protect them), 125 % = the actuators' full scale
+    Setting<int> dualsense_haptics_volume{linkage, 100, "dualsense_haptics_volume", Category::Controls};
+    // Xbox One rumble gain on RenHDrum's motor output, 25-1000 %; the motors' maximum still caps it
+    Setting<int> xbox_rumble_gain{linkage, 100, "xbox_rumble_gain", Category::Controls};
     // Valve controllers with one tone per motor (Steam Deck, Steam Controller 2026 in trackpads-only
     // mode): play the high band pulsed at the low band's frequency instead of the stronger band only
     Setting<bool> steam_hd_layered{linkage, false, "steam_hd_layered", Category::Controls};
