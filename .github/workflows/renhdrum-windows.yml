@@ -141,10 +141,13 @@ jobs:
           cmake --build build/release --target yuzu yuzu-cmd --parallel
           sccache --show-stats
 
+      # Never fails the job: when an earlier step failed the server was never started
       - name: Stop sccache
         if: always()
         shell: pwsh
-        run: sccache --stop-server
+        run: |
+          sccache --stop-server
+          exit 0
 
       - name: Package
         shell: pwsh
