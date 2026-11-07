@@ -46,7 +46,7 @@ GitHub Actions builds both systems; pick the latest green run and download it un
 | Steam Controller (2026) | All four motors: low band → grip on each side, high band → trackpad on each side (a tone at the game's frequency) |
 | Steam Deck | One tone per side on the trackpad actuators, at the game's frequency |
 | Steam Controller (2015) | One pulse train per side on the trackpad actuators; the pulse rhythm sets the frequency, the way it plays music |
-| Switch 2 Pro Controller (USB) | Native HD rumble 2: each side to its own motor, both bands with the game's frequencies (about 87–345 Hz; frequencies outside that range are clamped). Joy-Con 2 over USB too. SDL does not support them over Bluetooth yet; wherever SDL cannot play HD rumble on a connection, Lichii falls back to plain rumble |
+| Switch 2 Pro Controller (USB) | Native HD rumble 2: each side to its own motor, both bands with the game's frequencies (about 87–345 Hz; frequencies outside that range are clamped). Joy-Con 2 over USB too, on Linux and Windows. SDL does not support them over Bluetooth yet; wherever SDL cannot play HD rumble on a connection, Lichii falls back to plain rumble |
 
 ### Settings
 
@@ -73,6 +73,8 @@ Changes apply right away. To turn HD Rumble off entirely, create an empty file n
 
 ### Status
 
+On Windows, the Switch 2 controllers go through libusb (`libusb-1.0.dll`, shipped next to `lichii.exe`). Close Steam while using one in Lichii: only one program can hold the controller. If Lichii does not see it, install the WinUSB driver once with [Zadig](https://zadig.akeo.ie/) on the controller's non-HID interface (Options → List All Devices); leave the HID interface's driver alone.
+
 Experimental. Support for Valve's controllers is based on SDL's public protocol and may need tuning, for example if one side vibrates swapped. On the Steam Deck, Lichii must see the Deck's own controller: map the "Steam Deck" device in Lichii's controls rather than Steam's virtual gamepad. If something breaks, open an issue with the controller, whether it is wired or Bluetooth, and the log (**File → Open Lichii Folders → Log Folder**).
 
 ### Building
@@ -92,6 +94,7 @@ cmake --build build
 - [Lichii](https://github.com/zortos293/Lichii) by zortos293 and the projects it derives from (Eglantine, Eden, yuzu, Sudachi): GPL.
 - [RenHDrum](https://github.com/trzz1214/RenHDrum) by trzz1214: MIT / Apache-2.0. Builds ship its licenses.
 - [SDL](https://github.com/libsdl-org/SDL): zlib.
+- [libusb](https://github.com/libusb/libusb) (Windows builds): LGPL-2.1-or-later.
 - Switch 2 rumble frequency encoding from [joycon2-dongle](https://github.com/MukiEX/joycon2-dongle) by MukiEX: GPL-3.0.
 
 ## Este fork: Lichii + RenHDrum (HD Rumble)
@@ -117,7 +120,7 @@ GitHub Actions genera las builds de los dos sistemas: entra en la última ejecuc
 | Steam Controller (2026) | Los cuatro motores: banda grave → empuñadura de cada lado, banda aguda → trackpad de cada lado (tono a la frecuencia del juego) |
 | Steam Deck | Un tono por lado en los actuadores de los trackpads, a la frecuencia del juego |
 | Steam Controller (2015) | Un tren de pulsos por lado en los actuadores de los trackpads; el ritmo de los pulsos marca la frecuencia, igual que cuando "toca música" |
-| Switch 2 Pro Controller (USB) | HD Rumble 2 nativo: cada lado a su motor, las dos bandas con las frecuencias del juego (unos 87–345 Hz; lo que se sale de ese rango queda en el extremo). También Joy-Con 2 por USB. SDL aún no los soporta por Bluetooth; si en alguna conexión SDL no puede reproducir la vibración HD, Lichii vuelve a la vibración normal |
+| Switch 2 Pro Controller (USB) | HD Rumble 2 nativo: cada lado a su motor, las dos bandas con las frecuencias del juego (unos 87–345 Hz; lo que se sale de ese rango queda en el extremo). También Joy-Con 2 por USB, en Linux y en Windows. SDL aún no los soporta por Bluetooth; si en alguna conexión SDL no puede reproducir la vibración HD, Lichii vuelve a la vibración normal |
 
 ### Ajustes
 
@@ -144,6 +147,8 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 
 ### Estado
 
+En Windows, los mandos de Switch 2 funcionan a través de libusb (`libusb-1.0.dll`, que va junto a `lichii.exe`). Cierra Steam mientras uses uno en Lichii: solo un programa puede controlar el mando a la vez. Si Lichii no lo ve, instala una vez el driver WinUSB con [Zadig](https://zadig.akeo.ie/) en la interfaz del mando que no es HID (Options → List All Devices); no cambies el driver de la interfaz HID.
+
 Experimental. El soporte de los mandos de Valve se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. En la Steam Deck, Lichii tiene que ver el mando propio de la Deck: en los controles de Lichii asigna el dispositivo "Steam Deck", no el mando virtual de Steam. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Archivo → Abrir carpetas de Lichii → Carpeta de logs**).
 
 ### Compilar
@@ -163,6 +168,7 @@ Por defecto `RENHDRUM_DIR` apunta a `../RenHDrum` respecto a Lichii. En Windows 
 - [Lichii](https://github.com/zortos293/Lichii), de zortos293 y los proyectos de los que deriva (Eglantine, Eden, yuzu, Sudachi): GPL.
 - [RenHDrum](https://github.com/trzz1214/RenHDrum), de trzz1214: MIT / Apache-2.0. Las builds incluyen sus licencias.
 - [SDL](https://github.com/libsdl-org/SDL): zlib.
+- [libusb](https://github.com/libusb/libusb) (builds de Windows): LGPL-2.1-or-later.
 - Codificación de frecuencias del rumble de Switch 2 de [joycon2-dongle](https://github.com/MukiEX/joycon2-dongle), de MukiEX: GPL-3.0.
 
 ## Downloads and setup

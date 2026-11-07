@@ -44,6 +44,19 @@ jobs:
           cargo build --release
           ls -la target/release/renhdrum.dll target/release/renhdrum.dll.lib
 
+      # libusb for SDL's Switch 2 controller driver (Switch 2 Pro Controller / Joy-Con 2 over USB):
+      # without it SDL leaves that driver out on Windows. SDL loads libusb-1.0.dll at run time, so
+      # Lichii still starts without it; only those controllers need it.
+      - name: Get libusb
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/libusb.7z" \
+            https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.7z
+          echo "7fb1dfec805b97983763d7d0ae244320da12add1003d4249c96cc4d586398c79  $RUNNER_TEMP/libusb.7z" | sha256sum -c -
+          7z x -y -o_libusb "$RUNNER_TEMP/libusb.7z" > /dev/null
+          ls -la _libusb/include/libusb.h _libusb/VS2022/MS64/dll/libusb-1.0.dll _libusb/VS2022/MS64/dll/libusb-1.0.lib
+
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
@@ -106,8 +119,20 @@ jobs:
           -DLICHII_BUILD_PLATFORM=windows-x86_64
           -DUSE_DISCORD_PRESENCE=OFF
           -DRENHDRUM_DIR="${GITHUB_WORKSPACE//\\//}/_renhdrum"
+          -DLibUSB_LIBRARY="${GITHUB_WORKSPACE//\\//}/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
+          -DLibUSB_INCLUDE_PATH="${GITHUB_WORKSPACE//\\//}/_libusb/include"
           -DCMAKE_C_COMPILER_LAUNCHER=sccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+
+      # Fails early if SDL did not pick libusb up (no Switch 2 controller driver)
+      - name: Check SDL has libusb
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=$(grep -rl --include=SDL_build_config.h "SDL_JOYSTICK_HIDAPI" build/release | head -1)
+          echo "SDL config: $config"
+          grep -E "HAVE_LIBUSB|SDL_LIBUSB_DYNAMIC" "$config"
+          grep -q "^#define HAVE_LIBUSB 1" "$config"
 
       - name: Build
         shell: bash
@@ -130,6 +155,12 @@ jobs:
           windeployqt --release --no-translations build/release/bin/lichii.exe
           Copy-Item _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
           Copy-Item _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
+          # libusb for the Switch 2 controllers (LGPL-2.1-or-later, loaded at run time by SDL)
+          Copy-Item _libusb/VS2022/MS64/dll/libusb-1.0.dll build/release/bin/
+          Copy-Item _libusb/README.txt build/release/bin/LIBUSB-README.txt
+          Set-Content build/release/bin/LIBUSB-LICENSE.txt ("libusb-1.0.dll is libusb 1.0.30, licensed under " +
+            "the GNU Lesser General Public License 2.1 or later. Source code: " +
+            "https://github.com/libusb/libusb/releases/tag/v1.0.30")
           Get-ChildItem build/release/bin -Exclude *.pdb, *.ilk, *.lib, *.exp |
             Compress-Archive -DestinationPath lichii-renhdrum-windows-x86_64.zip
 
