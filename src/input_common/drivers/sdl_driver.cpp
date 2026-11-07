@@ -877,8 +877,7 @@ private:
             steam_tone = {};
             steam_grips = {};
             LOG_INFO(Input, "Initialized {} HD tones for {:04X}:{:04X}", pad_name, vid, pid);
-            const char* mode = kind == ValvePad::Triton && SteamSplitBands() ? "Valve HD · 4 motors"
-                                                                             : "Valve HD tones";
+            const char* mode = kind == ValvePad::Triton ? "Valve HD · 4 motors" : "Valve HD tones";
             PublishPad({pad_name, false, is_bluetooth, mode, false});
         }
     }
@@ -974,12 +973,12 @@ private:
     //  - Steam Controller (2026): four LRAs. Low band -> grip motor of each side (rumble report 0x80,
     //    amplitude only, sent directly because SDL_RumbleJoystick skips repeated values while the pad
     //    stops after ~50 ms); high band -> trackpad motor of each side (tone report 0x83 at the game's
-    //    frequency). "Trackpads only" plays one tone per side instead.
+    //    frequency).
     //  - Steam Deck: the two trackpad actuators, one tone per side (feature report 0xEA, tone command).
     //  - Steam Controller (2015): the two trackpad actuators, one pulse train per side (feature report
     //    0x8F); the pulse period sets the frequency, the way the controller plays music.
-    // One tone per side carries the stronger band. "Layer both bands" instead plays the high band and
-    // pulses it at the low band's frequency with the tone generator's LFO (2026 and Deck only).
+    // One tone per side carries the stronger band. On the Deck, "Layer both bands" instead plays the
+    // high band and pulses it at the low band's frequency with the tone generator's LFO.
     // Everything plays for a short time and is refreshed while the game vibrates, so the pad goes
     // quiet by itself if the emulator stalls.
     enum class ValvePad : u8 { None, Triton, Deck, Classic };
@@ -1119,7 +1118,7 @@ private:
             const bool layered = SteamLayeredBands() && kind != ValvePad::Classic;
             const ValveTiming& timing = kind == ValvePad::Classic ? CLASSIC_TIMING : TONE_TIMING;
             ToneTarget target{};
-            if (kind == ValvePad::Triton && SteamSplitBands()) {
+            if (kind == ValvePad::Triton) {
                 grip_write = BuildSteamGrips(now_us, is_right, low, grip_speed);
                 target = {high, v.high_frequency, 0, 0};
             } else {
@@ -1244,11 +1243,6 @@ private:
         }
         SendValveTone(joystick, kind, false, nullptr);
         SendValveTone(joystick, kind, true, nullptr);
-    }
-
-    // Configure Vibration > HD Rumble > Steam Controller (2026)
-    static bool SteamSplitBands() {
-        return Settings::values.steam_hd_four_motors.GetValue();
     }
 
     // Configure Vibration > HD Rumble > Layer both bands

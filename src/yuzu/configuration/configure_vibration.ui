@@ -549,37 +549,13 @@
        </widget>
       </item>
       <item row="1" column="0">
-       <widget class="QLabel" name="labelSteamMode">
-        <property name="text">
-         <string>Steam Controller (2026)</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QComboBox" name="comboSteamMode">
-        <property name="toolTip">
-         <string>How HD Rumble is played on the Steam Controller (2026).</string>
-        </property>
-        <item>
-         <property name="text">
-          <string>4 motors (low band on grips, high band on trackpads)</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>Trackpads only (one tone per side)</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="2" column="0">
        <widget class="QLabel" name="labelSteamTrackpadGain">
         <property name="text">
          <string>Steam Controller / Steam Deck trackpads</string>
         </property>
        </widget>
       </item>
-      <item row="2" column="1">
+      <item row="1" column="1">
        <widget class="QSpinBox" name="spinSteamTrackpadGain">
         <property name="toolTip">
          <string>Extra strength for the trackpad haptics of the Steam Controller (2015 and 2026) and the Steam Deck.</string>
@@ -598,14 +574,14 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0">
+      <item row="2" column="0">
        <widget class="QLabel" name="labelDualSenseVolume">
         <property name="text">
          <string>DualSense haptics</string>
         </property>
        </widget>
       </item>
-      <item row="3" column="1">
+      <item row="2" column="1">
        <widget class="QSpinBox" name="spinDualSenseVolume">
         <property name="toolTip">
          <string>100% is RenHDrum's calibrated ceiling (80% of the actuators' full scale, chosen to protect them). Up to 125% reaches the actuators' full scale.</string>
@@ -627,14 +603,14 @@
         </property>
        </widget>
       </item>
-      <item row="4" column="0">
+      <item row="3" column="0">
        <widget class="QLabel" name="labelXboxGain">
         <property name="text">
          <string>Xbox One motors</string>
         </property>
        </widget>
       </item>
-      <item row="4" column="1">
+      <item row="3" column="1">
        <widget class="QSpinBox" name="spinXboxGain">
         <property name="toolTip">
          <string>Strength of RenHDrum's Xbox One rumble. Above 100% it grows until the motors reach their maximum.</string>
@@ -656,13 +632,13 @@
         </property>
        </widget>
       </item>
-      <item row="5" column="0" colspan="2">
+      <item row="4" column="0" colspan="2">
        <widget class="QCheckBox" name="checkSteamLayered">
         <property name="text">
-         <string>Layer both bands on one motor (experimental)</string>
+         <string>Steam Deck: layer both bands (experimental)</string>
         </property>
         <property name="toolTip">
-         <string>Steam Deck, and the Steam Controller (2026) in trackpads-only mode, play one tone per side. Off: the stronger band. On: the high band, pulsed at the low band's frequency.</string>
+         <string>The Steam Deck plays one tone per side. Off: the stronger band. On: the high band, pulsed at the low band's frequency.</string>
         </property>
        </widget>
       </item>
