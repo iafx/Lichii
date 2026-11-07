@@ -864,12 +864,13 @@ private:
     }
 
     // Switch 2 Pro Controller / Joy-Con 2: HD rumble 2 takes, per motor, two bands with their own
-    // frequency and amplitude, like Switch 1 games send. Frequency codes are 9 bits, logarithmic:
-    // 256 per octave, 0x0E1 = 160 Hz (from joycon2-dongle by MukiEX, GPL-3.0), so they cover about
-    // 87-345 Hz; frequencies outside that range are clamped to its ends. The bit above the code is
-    // reported as an unconfirmed "tone" flag, so it stays 0. Amplitudes are 10 bits and, like on a
-    // Switch 2, the game's amplitude goes out at full scale (1.0 = 0x3FF) with no cap or curve of
-    // our own; the per-player strength and the HD Rumble boost (both 100 % by default) still apply.
+    // frequency and amplitude, like Switch 1 games send. Frequency codes are logarithmic, 256 per
+    // octave, 0x0E1 = 160 Hz (from joycon2-dongle by MukiEX, GPL-3.0), and 10 bits wide, as in
+    // Valve's SDL and Linux drivers (values 0-1023), so they cover about 87-1388 Hz: the whole
+    // Switch 1 range (40-1252 Hz) above 87 Hz; lower ones are clamped. Amplitudes are 10 bits
+    // and, like on a Switch 2, the game's amplitude goes out at full scale (1.0 = 0x3FF) with no
+    // cap or curve of our own; the per-player strength and the HD Rumble boost (both 100 % by
+    // default) still apply.
     struct Switch2Motor {
         u16 lo_freq{0x0E1};
         u16 lo_amp{0};
@@ -888,7 +889,7 @@ private:
 
     static u16 Switch2FrequencyCode(f32 hz) {
         const f32 code = 225.0f + 256.0f * std::log2(std::clamp(hz, 40.0f, 1252.0f) / 160.0f);
-        return static_cast<u16>(std::clamp(std::lround(code), 1L, 511L));
+        return static_cast<u16>(std::clamp(std::lround(code), 1L, 1023L));
     }
 
     bool Switch2Vibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {

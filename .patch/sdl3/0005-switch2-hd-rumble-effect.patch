@@ -7,7 +7,7 @@ index 773405c..e949468 100644
      bool rumble_updated;
  
 +    // HD rumble from SDL_SendJoystickEffect: per motor (0 = left, 1 = right), two bands with their own
-+    // frequency code (9 bits, 256 per octave, 0x0E1 = 160 Hz) and 10-bit amplitude. Played until
++    // frequency code (10 bits, 256 per octave, 0x0E1 = 160 Hz) and 10-bit amplitude. Played until
 +    // hd_rumble_expire (ms), so a game that stops sending goes quiet.
 +    bool hd_rumble;
 +    Uint64 hd_rumble_expire;
@@ -28,7 +28,7 @@ index 773405c..e949468 100644
 +
 +// HD rumble effect: "HDR2", a flags byte (reserved, 0), then for the left and the right motor
 +// (Uint16 little endian each): low band frequency code, low band amplitude (0-1023), high band
-+// frequency code, high band amplitude (0-1023). Frequency codes are 9 bits, 256 per octave,
++// frequency code, high band amplitude (0-1023). Frequency codes are 10 bits, 256 per octave,
 +// 0x0E1 = 160 Hz. Each effect plays for SWITCH2_HD_RUMBLE_HOLD_MS; send again to keep it going.
  static bool HIDAPI_DriverSwitch2_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
  {
@@ -50,9 +50,9 @@ index 773405c..e949468 100644
 +    }
 +    for (int motor = 0; motor < 2; ++motor) {
 +        const Uint8 *m = &effect[5 + motor * 8];
-+        ctx->hd_lo_freq[motor] = (Uint16)((m[0] | (m[1] << 8)) & 0x1FF);
++        ctx->hd_lo_freq[motor] = (Uint16)((m[0] | (m[1] << 8)) & 0x3FF);
 +        ctx->hd_lo_amp[motor] = (Uint16)SDL_min(m[2] | (m[3] << 8), 0x3FF);
-+        ctx->hd_hi_freq[motor] = (Uint16)((m[4] | (m[5] << 8)) & 0x1FF);
++        ctx->hd_hi_freq[motor] = (Uint16)((m[4] | (m[5] << 8)) & 0x3FF);
 +        ctx->hd_hi_amp[motor] = (Uint16)SDL_min(m[6] | (m[7] << 8), 0x3FF);
 +    }
 +    ctx->hd_rumble = true;
@@ -66,12 +66,12 @@ index 773405c..e949468 100644
      rumble_data[4] = (Uint8)(low_amp >> 8);
  }
  
-+// One motor's HD rumble operation: low band frequency (bits 0-8), low band amplitude (10-19),
-+// high band frequency (20-28), high band amplitude (30-39)
++// One motor's HD rumble operation: low band frequency (bits 0-9), low band amplitude (10-19),
++// high band frequency (20-29), high band amplitude (30-39); 10-bit fields, as Valve's driver has
 +static void EncodeHDRumble2(Uint16 lo_freq, Uint16 lo_amp, Uint16 hi_freq, Uint16 hi_amp, Uint8 rumble_data[5])
 +{
-+    Uint64 w = (Uint64)(lo_freq & 0x1FF) | ((Uint64)(lo_amp & 0x3FF) << 10) |
-+               ((Uint64)(hi_freq & 0x1FF) << 20) | ((Uint64)(hi_amp & 0x3FF) << 30);
++    Uint64 w = (Uint64)(lo_freq & 0x3FF) | ((Uint64)(lo_amp & 0x3FF) << 10) |
++               ((Uint64)(hi_freq & 0x3FF) << 20) | ((Uint64)(hi_amp & 0x3FF) << 30);
 +    for (int i = 0; i < 5; ++i) {
 +        rumble_data[i] = (Uint8)(w >> (8 * i));
 +    }
