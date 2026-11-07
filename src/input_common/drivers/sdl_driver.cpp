@@ -868,8 +868,9 @@ private:
     // frequency and amplitude, like Switch 1 games send. Frequency codes are 9 bits, logarithmic:
     // 256 per octave, 0x0E1 = 160 Hz (from joycon2-dongle by MukiEX, GPL-3.0), so they cover about
     // 87-345 Hz; frequencies outside that range are clamped to its ends. The bit above the code is
-    // reported as an unconfirmed "tone" flag, so it stays 0. Amplitudes are 10 bits, capped below
-    // full scale, as SDL does, because full power can stress the motors.
+    // reported as an unconfirmed "tone" flag, so it stays 0. Amplitudes are 10 bits and, like on a
+    // Switch 2, the game's amplitude goes out at full scale (1.0 = 0x3FF) with no cap or curve of
+    // our own; the per-player strength and the HD Rumble boost (both 100 % by default) still apply.
     struct Switch2Motor {
         u16 lo_freq{0x0E1};
         u16 lo_amp{0};
@@ -884,8 +885,7 @@ private:
     };
     static constexpr int64_t SWITCH2_MIN_GAP_US = 5'000;
     static constexpr int64_t SWITCH2_REFRESH_US = 30'000; // SDL holds each effect for 60 ms
-    static constexpr f32 SWITCH2_LOW_AMP_MAX = 0.70f * 1023.0f;
-    static constexpr f32 SWITCH2_HIGH_AMP_MAX = 0.60f * 1023.0f;
+    static constexpr f32 SWITCH2_AMP_FULL_SCALE = 1023.0f;
 
     static u16 Switch2FrequencyCode(f32 hz) {
         const f32 code = 225.0f + 256.0f * std::log2(std::clamp(hz, 40.0f, 1252.0f) / 160.0f);
@@ -907,8 +907,10 @@ private:
             auto& motor = switch2_state.motor[is_right ? 1 : 0];
             motor.lo_freq = Switch2FrequencyCode(v.low_frequency);
             motor.hi_freq = Switch2FrequencyCode(v.high_frequency);
-            motor.lo_amp = static_cast<u16>(std::clamp(v.low_amplitude, 0.0f, 1.0f) * SWITCH2_LOW_AMP_MAX);
-            motor.hi_amp = static_cast<u16>(std::clamp(v.high_amplitude, 0.0f, 1.0f) * SWITCH2_HIGH_AMP_MAX);
+            motor.lo_amp = static_cast<u16>(
+                std::lround(std::clamp(v.low_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
+            motor.hi_amp = static_cast<u16>(
+                std::lround(std::clamp(v.high_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
             const bool changed = switch2_state.motor != switch2_state.sent;
             const bool playing = switch2_state.motor[0].lo_amp || switch2_state.motor[0].hi_amp ||
                                  switch2_state.motor[1].lo_amp || switch2_state.motor[1].hi_amp;
