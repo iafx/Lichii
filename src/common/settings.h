@@ -901,7 +901,10 @@ struct Values {
     // Steam Controller (2026): low band on the grip motors and high band on the trackpads (true),
     // or one tone per side on the trackpads (false)
     Setting<bool> steam_hd_four_motors{linkage, true, "steam_hd_four_motors", Category::Controls};
-    // Steam Controller trackpad tone gain in dB, -20 to +6
+    // Valve controllers with one tone per motor (Steam Deck, Steam Controller 2026 in trackpads-only
+    // mode): play the high band pulsed at the low band's frequency instead of the stronger band only
+    Setting<bool> steam_hd_layered{linkage, false, "steam_hd_layered", Category::Controls};
+    // Steam Controller / Steam Deck trackpad tone gain in dB, -20 to +6
     Setting<int> steam_trackpad_gain_db{linkage, 0, "steam_trackpad_gain_db", Category::Controls};
 
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};

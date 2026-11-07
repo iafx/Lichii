@@ -697,7 +697,7 @@ public:
         if (XboxRumbleVibrate(now_us, is_right, v)) {
             return true;
         }
-        if (SteamTritonVibrate(now_us, is_right, v)) {
+        if (ValveVibrate(now_us, is_right, v)) {
             return true;
         }
         {
@@ -805,43 +805,78 @@ private:
                 PublishPad({pad_name, false, is_bluetooth, "Xbox rumble", false});
             }
         }
-        // Steam Controller (2026, "Triton"): wired, Bluetooth LE or the Steam dongles
-        else if (vid == 0x28DE && pid >= 0x1302 && pid <= 0x1305) {
-            if (!HdRumbleOn()) {
-                LOG_INFO(Input, "HD Rumble off: Steam Controller {:04X}:{:04X} uses plain rumble", vid, pid);
+        // Valve: Steam Controller (2026, "Triton": wired, Bluetooth LE or the Steam dongles),
+        // Steam Deck, Steam Controller (2015: wired, wireless dongle, Bluetooth LE)
+        else if (vid == 0x28DE) {
+            ValvePad kind = ValvePad::None;
+            bool is_bluetooth = false;
+            if (pid >= 0x1302 && pid <= 0x1305) {
+                kind = ValvePad::Triton;
+                is_bluetooth = pid == 0x1303;
+                pad_name = "Steam Controller";
+            } else if (pid == 0x1205) {
+                kind = ValvePad::Deck;
+                pad_name = "Steam Deck";
+            } else if (pid == 0x1102 || pid == 0x1142 || pid == 0x1105 || pid == 0x1106) {
+                kind = ValvePad::Classic;
+                is_bluetooth = pid == 0x1105 || pid == 0x1106;
+                pad_name = "Steam Controller (2015)";
+            }
+            if (kind == ValvePad::None) {
                 return;
             }
-            const bool is_bluetooth = pid == 0x1303;
+            if (!HdRumbleOn()) {
+                LOG_INFO(Input, "HD Rumble off: {} {:04X}:{:04X} uses plain rumble", pad_name, vid, pid);
+                return;
+            }
             // Like the other pads here: callers already serialize Init/Cleanup (SetSDLJoystick holds renhdrum_mutex)
-            steam_triton = true;
+            valve_pad = kind;
             steam_tone = {};
             steam_grips = {};
-            pad_name = "Steam Controller";
-            LOG_INFO(Input, "Initialized Steam Controller HD tones for {:04X}:{:04X}", vid, pid);
-            PublishPad({pad_name, false, is_bluetooth, SteamSplitBands() ? "Steam HD · 4 motors" : "Steam HD tones", false});
+            LOG_INFO(Input, "Initialized {} HD tones for {:04X}:{:04X}", pad_name, vid, pid);
+            const char* mode = kind == ValvePad::Triton && SteamSplitBands() ? "Valve HD · 4 motors"
+                                                                             : "Valve HD tones";
+            PublishPad({pad_name, false, is_bluetooth, mode, false});
         }
     }
 
-    // Steam Controller HD rumble over its four LRAs, two bands per side:
-    //  - low band  -> grip motor of that side: rumble report 0x80, both grips in one report.
-    //    Amplitude only, the firmware picks the waveform. Sent here rather than through
-    //    SDL_RumbleJoystick, which skips repeated values while the pad stops after ~50 ms.
-    //  - high band -> trackpad motor of that side: tone report 0x83 at the game's own frequency.
-    // Configure Vibration > HD Rumble > Steam Controller can go back to one tone per side (stronger
-    // band) and no grips.
-    // Everything is sent for 60 ms and refreshed while the game vibrates: the pad stops by itself
-    // (and the firmware's ~50 ms safety timeout never cuts in) if the emulator stalls.
+    // HD rumble on Valve controllers. Their haptic actuators take tones (one frequency at a time per
+    // motor), not waveforms:
+    //  - Steam Controller (2026): four LRAs. Low band -> grip motor of each side (rumble report 0x80,
+    //    amplitude only, sent directly because SDL_RumbleJoystick skips repeated values while the pad
+    //    stops after ~50 ms); high band -> trackpad motor of each side (tone report 0x83 at the game's
+    //    frequency). "Trackpads only" plays one tone per side instead.
+    //  - Steam Deck: the two trackpad actuators, one tone per side (feature report 0xEA, tone command).
+    //  - Steam Controller (2015): the two trackpad actuators, one pulse train per side (feature report
+    //    0x8F); the pulse period sets the frequency, the way the controller plays music.
+    // One tone per side carries the stronger band. "Layer both bands" instead plays the high band and
+    // pulses it at the low band's frequency with the tone generator's LFO (2026 and Deck only).
+    // Everything plays for a short time and is refreshed while the game vibrates, so the pad goes
+    // quiet by itself if the emulator stalls.
+    enum class ValvePad : u8 { None, Triton, Deck, Classic };
+
     static constexpr u8 STEAM_REPORT_RUMBLE = 0x80;
     static constexpr u8 STEAM_REPORT_COMMAND = 0x82;
     static constexpr u8 STEAM_REPORT_LFO_TONE = 0x83;
-    static constexpr int64_t STEAM_MIN_GAP_US = 8'000;
-    static constexpr int64_t STEAM_REFRESH_US = 30'000;
-    static constexpr u16 STEAM_DURATION_MS = 60;
+    static constexpr u8 STEAM_FEATURE_HAPTIC_PULSE = 0x8F;
+    static constexpr u8 STEAM_FEATURE_TRIGGER_HAPTIC = 0xEA;
+
+    struct ValveTiming {
+        int64_t min_gap_us;
+        int64_t refresh_us;
+        u16 duration_ms;
+    };
+    static constexpr ValveTiming TONE_TIMING{8'000, 30'000, 60};
+    // The 2015 controller's feature reports are slower (and split in four packets over Bluetooth)
+    static constexpr ValveTiming CLASSIC_TIMING{20'000, 40'000, 80};
 
     struct SteamToneSide {
         bool on{false};
         u16 frequency{0};
         s8 gain_db{0};
+        u16 lfo_frequency{0};
+        u8 lfo_depth{0};
+        f32 amplitude{0};
         int64_t last_write_us{0};
     };
 
@@ -851,42 +886,65 @@ private:
         int64_t last_write_us{0};
     };
 
-    // Decides the tone report for one side (under renhdrum_mutex). 0 = nothing to send.
-    int BuildSteamTone(std::array<u8, 10>& report, int64_t now_us, bool is_right, f32 amplitude,
-                       f32 frequency_hz) {
+    struct ToneTarget {
+        f32 amplitude{0};
+        f32 frequency{0};
+        f32 lfo_frequency{0};
+        f32 lfo_depth{0}; // 0-1
+    };
+
+    // What one motor should play for a side, from the game's two bands
+    static ToneTarget PlanTone(f32 low, f32 high, f32 low_hz, f32 high_hz, bool layered) {
+        const f32 strong = (std::max)(low, high);
+        const f32 weak = (std::min)(low, high);
+        ToneTarget target{};
+        target.amplitude = (std::min)(1.0f, strong + 0.5f * weak);
+        if (layered && low > 0.05f && high > 0.05f) {
+            // High band as the carrier, pulsed at the low band's frequency: amplitude modulation adds
+            // energy around the low frequency, deeper the stronger the low band is
+            target.frequency = high_hz;
+            target.lfo_frequency = low_hz;
+            target.lfo_depth = (std::min)(1.0f, 2.0f * low / (low + high));
+        } else {
+            target.frequency = low >= high ? low_hz : high_hz;
+        }
+        return target;
+    }
+
+    // Decides whether a side needs a new tone command (under renhdrum_mutex)
+    enum class ToneAction { None, Play, Off };
+    ToneAction UpdateToneSide(int64_t now_us, bool is_right, const ToneTarget& target,
+                              const ValveTiming& timing) {
         auto& side = steam_tone[is_right ? 1 : 0];
-        const u8 side_id = is_right ? 0x02 : 0x01;
-        if (amplitude < 0.02f) {
+        if (target.amplitude < 0.02f) {
             if (!side.on) {
-                return 0;
+                return ToneAction::None;
             }
             side.on = false;
             side.last_write_us = now_us;
-            report = {STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
-            return 4;
+            return ToneAction::Off;
         }
-        const u16 frequency = static_cast<u16>(std::clamp(frequency_hz, 40.0f, 1250.0f));
-        const s8 gain_db = static_cast<s8>(
-            std::clamp(std::lround(20.0f * std::log10(amplitude)) + SteamGainOffsetDb(), -40L, 6L));
+        const u16 frequency = static_cast<u16>(std::clamp(target.frequency, 40.0f, 1250.0f));
+        const s8 gain_db = static_cast<s8>(std::clamp(
+            std::lround(20.0f * std::log10(target.amplitude)) + SteamGainOffsetDb(), -40L, 6L));
+        const u16 lfo_frequency =
+            target.lfo_depth > 0.0f ? static_cast<u16>(std::clamp(target.lfo_frequency, 1.0f, 1000.0f)) : 0;
+        const u8 lfo_depth = static_cast<u8>(std::lround(target.lfo_depth * 100.0f));
         const bool changed = !side.on || gain_db != side.gain_db ||
-                             std::abs(frequency - side.frequency) > side.frequency / 32;
+                             std::abs(frequency - side.frequency) > side.frequency / 32 ||
+                             std::abs(lfo_frequency - side.lfo_frequency) > side.lfo_frequency / 32 + 1 ||
+                             std::abs(lfo_depth - side.lfo_depth) > 5 ||
+                             std::abs(target.amplitude - side.amplitude) > 0.05f;
         const int64_t since = now_us - side.last_write_us;
-        if (since < STEAM_MIN_GAP_US || (!changed && since < STEAM_REFRESH_US)) {
-            return 0;
+        if (since < timing.min_gap_us || (!changed && since < timing.refresh_us)) {
+            return ToneAction::None;
         }
-        side = {true, frequency, gain_db, now_us};
-        report = {STEAM_REPORT_LFO_TONE,
-                  side_id,
-                  static_cast<u8>(gain_db),
-                  static_cast<u8>(frequency & 0xFF),
-                  static_cast<u8>(frequency >> 8),
-                  static_cast<u8>(STEAM_DURATION_MS & 0xFF),
-                  static_cast<u8>(STEAM_DURATION_MS >> 8),
-                  0, 0, 0 /* no LFO */};
-        return 10;
+        side = {true, frequency, gain_db, lfo_frequency, lfo_depth, target.amplitude, now_us};
+        return ToneAction::Play;
     }
 
-    // Decides the grip rumble write (under renhdrum_mutex): both grips go in one report.
+    // Decides the grip rumble write of the 2026 controller (under renhdrum_mutex): both grips go in
+    // one report.
     bool BuildSteamGrips(int64_t now_us, bool is_right, f32 amplitude, std::array<u16, 2>& out) {
         auto& grips = steam_grips;
         grips.speed[is_right ? 1 : 0] =
@@ -900,7 +958,7 @@ private:
         const bool changed = moved(grips.speed[0], grips.sent_speed[0]) ||
                              moved(grips.speed[1], grips.sent_speed[1]) || (running && !wanted);
         const int64_t since = now_us - grips.last_write_us;
-        if ((since < STEAM_MIN_GAP_US && wanted) || (!changed && since < STEAM_REFRESH_US)) {
+        if ((since < TONE_TIMING.min_gap_us && wanted) || (!changed && since < TONE_TIMING.refresh_us)) {
             return false;
         }
         grips.sent_speed = grips.speed;
@@ -909,15 +967,17 @@ private:
         return true;
     }
 
-    bool SteamTritonVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
-        std::array<u8, 10> tone{};
-        int tone_size = 0;
+    bool ValveVibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
+        ValvePad kind = ValvePad::None;
+        ToneAction action = ToneAction::None;
+        SteamToneSide tone{};
         std::array<u16, 2> grip_speed{};
         bool grip_write = false;
         SDL_Joystick* joystick = nullptr;
         {
             std::scoped_lock lock{renhdrum_mutex};
-            if (!steam_triton) {
+            kind = valve_pad;
+            if (kind == ValvePad::None) {
                 return false;
             }
             // Taken under the lock, like TickRenHDrum: SetSDLJoystick swaps sdl_joystick on disconnect
@@ -927,22 +987,114 @@ private:
             }
             const f32 low = std::clamp(v.low_amplitude, 0.0f, 1.0f);
             const f32 high = std::clamp(v.high_amplitude, 0.0f, 1.0f);
-            if (SteamSplitBands()) {
+            const bool layered = SteamLayeredBands() && kind != ValvePad::Classic;
+            const ValveTiming& timing = kind == ValvePad::Classic ? CLASSIC_TIMING : TONE_TIMING;
+            ToneTarget target{};
+            if (kind == ValvePad::Triton && SteamSplitBands()) {
                 grip_write = BuildSteamGrips(now_us, is_right, low, grip_speed);
-                tone_size = BuildSteamTone(tone, now_us, is_right, high, v.high_frequency);
+                target = {high, v.high_frequency, 0, 0};
             } else {
-                const f32 amplitude = std::min(1.0f, std::max(low, high) + 0.5f * std::min(low, high));
-                tone_size = BuildSteamTone(tone, now_us, is_right, amplitude,
-                                           low >= high ? v.low_frequency : v.high_frequency);
+                target = PlanTone(low, high, v.low_frequency, v.high_frequency, layered);
             }
+            action = UpdateToneSide(now_us, is_right, target, timing);
+            tone = steam_tone[is_right ? 1 : 0];
         }
         if (grip_write) {
             SendSteamGrips(joystick, grip_speed[0], grip_speed[1]);
         }
-        if (tone_size && !SDL_SendJoystickEffect(joystick, tone.data(), tone_size)) {
-            LOG_DEBUG(Input, "Steam Controller haptic report failed: {}", SDL_GetError());
+        if (action != ToneAction::None) {
+            SendValveTone(joystick, kind, is_right, action == ToneAction::Play ? &tone : nullptr);
         }
         return true;
+    }
+
+    // Plays (tone != nullptr) or stops a tone on one side
+    static void SendValveTone(SDL_Joystick* joystick, ValvePad kind, bool is_right,
+                              const SteamToneSide* tone) {
+        bool ok = true;
+        switch (kind) {
+        case ValvePad::Triton: {
+            const u8 side_id = is_right ? 0x02 : 0x01;
+            if (!tone) {
+                const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
+                ok = SDL_SendJoystickEffect(joystick, off.data(), static_cast<int>(off.size()));
+                break;
+            }
+            const u16 duration = TONE_TIMING.duration_ms;
+            const std::array<u8, 10> report{STEAM_REPORT_LFO_TONE,
+                                            side_id,
+                                            static_cast<u8>(tone->gain_db),
+                                            static_cast<u8>(tone->frequency & 0xFF),
+                                            static_cast<u8>(tone->frequency >> 8),
+                                            static_cast<u8>(duration & 0xFF),
+                                            static_cast<u8>(duration >> 8),
+                                            static_cast<u8>(tone->lfo_frequency & 0xFF),
+                                            static_cast<u8>(tone->lfo_frequency >> 8),
+                                            tone->lfo_depth};
+            ok = SDL_SendJoystickEffect(joystick, report.data(), static_cast<int>(report.size()));
+            break;
+        }
+        case ValvePad::Deck: {
+            // Feature report: report ID 0, then MsgTriggerHaptic (packed, 19 bytes)
+            std::array<u8, 65> report{};
+            const u16 duration = TONE_TIMING.duration_ms;
+            report[1] = STEAM_FEATURE_TRIGGER_HAPTIC;
+            report[2] = 19;
+            report[3] = is_right ? 0x02 : 0x01;     // side
+            report[4] = tone ? 3 : 0;               // cmd: 3 = tone, 0 = off
+            report[5] = 0;                          // ui_intensity: default
+            if (tone) {
+                report[6] = static_cast<u8>(tone->gain_db);
+                report[7] = static_cast<u8>(tone->frequency & 0xFF);
+                report[8] = static_cast<u8>(tone->frequency >> 8);
+                report[9] = static_cast<u8>(duration & 0xFF);
+                report[10] = static_cast<u8>(duration >> 8);
+                // [11..12] noise_intensity = 0
+                report[13] = static_cast<u8>(tone->lfo_frequency & 0xFF);
+                report[14] = static_cast<u8>(tone->lfo_frequency >> 8);
+                report[15] = tone->lfo_depth;
+            }
+            ok = SDL_SendJoystickEffect(joystick, report.data(), static_cast<int>(report.size()));
+            break;
+        }
+        case ValvePad::Classic: {
+            // Feature report: report ID 0, then MsgFireHapticPulse (packed, 10 bytes). which_pad
+            // 0 = right, 1 = left. Pulse period = 1 / frequency; a longer "on" part of each period
+            // and the dB gain both make it stronger.
+            std::array<u8, 65> report{};
+            u16 on_us = 0;
+            u16 off_us = 0;
+            u16 count = 0;
+            s16 gain_db = 0;
+            if (tone) {
+                const u32 period_us = 1'000'000u / (std::max<u16>)(tone->frequency, 40);
+                const f32 duty = 0.1f + 0.4f * std::clamp(tone->amplitude, 0.0f, 1.0f);
+                on_us = static_cast<u16>((std::max)(1.0f, static_cast<f32>(period_us) * duty));
+                off_us = static_cast<u16>(period_us - on_us);
+                count = static_cast<u16>((std::max)(1u, CLASSIC_TIMING.duration_ms * 1000u / period_us));
+                gain_db = tone->gain_db;
+            }
+            report[1] = STEAM_FEATURE_HAPTIC_PULSE;
+            report[2] = 10;
+            report[3] = is_right ? 0 : 1;
+            report[4] = static_cast<u8>(on_us & 0xFF);
+            report[5] = static_cast<u8>(on_us >> 8);
+            report[6] = static_cast<u8>(off_us & 0xFF);
+            report[7] = static_cast<u8>(off_us >> 8);
+            report[8] = static_cast<u8>(count & 0xFF);
+            report[9] = static_cast<u8>(count >> 8);
+            report[10] = static_cast<u8>(static_cast<u16>(gain_db) & 0xFF);
+            report[11] = static_cast<u8>(static_cast<u16>(gain_db) >> 8);
+            report[12] = 0; // priority
+            ok = SDL_SendJoystickEffect(joystick, report.data(), static_cast<int>(report.size()));
+            break;
+        }
+        case ValvePad::None:
+            return;
+        }
+        if (!ok) {
+            LOG_DEBUG(Input, "Valve controller haptic command failed: {}", SDL_GetError());
+        }
     }
 
     // Report 0x80: type, intensity (u16), then speed (u16) + gain (s8) for the left and right grip
@@ -956,21 +1108,26 @@ private:
     }
 
     // Called with renhdrum_mutex held (CleanupRenHDrum)
-    static void StopSteamTones(SDL_Joystick* joystick) {
-        SendSteamGrips(joystick, 0, 0);
-        SDL_RumbleJoystick(joystick, 0, 0, 0);
-        for (const u8 side_id : {u8{0x01}, u8{0x02}}) {
-            const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0, 0};
-            SDL_SendJoystickEffect(joystick, off.data(), static_cast<int>(off.size()));
+    static void StopValveHaptics(SDL_Joystick* joystick, ValvePad kind) {
+        if (kind == ValvePad::Triton) {
+            SendSteamGrips(joystick, 0, 0);
+            SDL_RumbleJoystick(joystick, 0, 0, 0);
         }
+        SendValveTone(joystick, kind, false, nullptr);
+        SendValveTone(joystick, kind, true, nullptr);
     }
 
-    // Configure Vibration > HD Rumble > Steam Controller
+    // Configure Vibration > HD Rumble > Steam Controller (2026)
     static bool SteamSplitBands() {
         return Settings::values.steam_hd_four_motors.GetValue();
     }
 
-    // Configure Vibration > HD Rumble > Steam Controller trackpads, in dB (-20 to +6)
+    // Configure Vibration > HD Rumble > Layer both bands
+    static bool SteamLayeredBands() {
+        return Settings::values.steam_hd_layered.GetValue();
+    }
+
+    // Configure Vibration > HD Rumble > Valve trackpads, in dB (-20 to +6)
     static long SteamGainOffsetDb() {
         return std::clamp<long>(Settings::values.steam_trackpad_gain_db.GetValue(), -20, 6);
     }
@@ -1276,11 +1433,11 @@ private:
             renhdrum_xbox_rumble_destroy(xbox_rumble);
             xbox_rumble = nullptr;
         }
-        if (steam_triton) {
+        if (valve_pad != ValvePad::None) {
             if (sdl_joystick) {
-                StopSteamTones(sdl_joystick.get());
+                StopValveHaptics(sdl_joystick.get(), valve_pad);
             }
-            steam_triton = false;
+            valve_pad = ValvePad::None;
         }
     }
 
@@ -1300,7 +1457,7 @@ private:
     RenHdcXboxRumble* xbox_rumble{nullptr};
     std::mutex stats_mutex;
     VibrationStats vibration_stats{};
-    bool steam_triton{false};
+    ValvePad valve_pad{ValvePad::None};
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};
     std::mutex pending_vibration_mutex;

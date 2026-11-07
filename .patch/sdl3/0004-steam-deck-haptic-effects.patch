@@ -1,0 +1,28 @@
+diff --git a/src/joystick/hidapi/SDL_hidapi_steamdeck.c b/src/joystick/hidapi/SDL_hidapi_steamdeck.c
+index 018ce00..6efd61b 100644
+--- a/src/joystick/hidapi/SDL_hidapi_steamdeck.c
++++ b/src/joystick/hidapi/SDL_hidapi_steamdeck.c
+@@ -421,7 +421,22 @@ static bool HIDAPI_DriverSteamDeck_SetJoystickLED(SDL_HIDAPI_Device *device, SDL
+ 
+ static bool HIDAPI_DriverSteamDeck_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
+ {
+-    return SDL_Unsupported();
++    // Raw haptic feature reports, report ID included (65 bytes, like the Steam Controller driver):
++    // trigger haptic (0xEA: tones on the trackpad actuators), rumble (0xEB), haptic pulse (0x8F).
++    // Lets an application play HD rumble as tones.
++    const Uint8 *report = (const Uint8 *)data;
++
++    if (!report || size != HID_FEATURE_REPORT_BYTES + 1) {
++        return SDL_Unsupported();
++    }
++    if (report[1] != ID_TRIGGER_HAPTIC_CMD && report[1] != ID_TRIGGER_RUMBLE_CMD &&
++        report[1] != ID_TRIGGER_HAPTIC_PULSE) {
++        return SDL_Unsupported();
++    }
++    if (SDL_hid_send_feature_report(device->dev, report, size) != size) {
++        return SDL_SetError("Couldn't send Steam Deck haptic report");
++    }
++    return true;
+ }
+ 
+ static bool HIDAPI_DriverSteamDeck_SetSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)

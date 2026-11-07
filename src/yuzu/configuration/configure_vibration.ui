@@ -551,14 +551,14 @@
       <item row="1" column="0">
        <widget class="QLabel" name="labelSteamMode">
         <property name="text">
-         <string>Steam Controller</string>
+         <string>Steam Controller (2026)</string>
         </property>
        </widget>
       </item>
       <item row="1" column="1">
        <widget class="QComboBox" name="comboSteamMode">
         <property name="toolTip">
-         <string>How HD Rumble is played on the Steam Controller (2026). Takes effect when the controller reconnects.</string>
+         <string>How HD Rumble is played on the Steam Controller (2026).</string>
         </property>
         <item>
          <property name="text">
@@ -575,14 +575,14 @@
       <item row="2" column="0">
        <widget class="QLabel" name="labelSteamTrackpadGain">
         <property name="text">
-         <string>Steam Controller trackpads</string>
+         <string>Steam Controller / Steam Deck trackpads</string>
         </property>
        </widget>
       </item>
       <item row="2" column="1">
        <widget class="QSpinBox" name="spinSteamTrackpadGain">
         <property name="toolTip">
-         <string>Extra strength for the trackpad haptics of the Steam Controller (2026).</string>
+         <string>Extra strength for the trackpad haptics of the Steam Controller (2015 and 2026) and the Steam Deck.</string>
         </property>
         <property name="suffix">
          <string> dB</string>
@@ -595,6 +595,16 @@
         </property>
         <property name="value">
          <number>0</number>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QCheckBox" name="checkSteamLayered">
+        <property name="text">
+         <string>Layer both bands on one motor (experimental)</string>
+        </property>
+        <property name="toolTip">
+         <string>Steam Deck, and the Steam Controller (2026) in trackpads-only mode, play one tone per side. Off: the stronger band. On: the high band, pulsed at the low band's frequency.</string>
         </property>
        </widget>
       </item>
