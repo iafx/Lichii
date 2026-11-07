@@ -46,6 +46,7 @@ GitHub Actions builds both systems; pick the latest green run and download it un
 | Steam Controller (2026) | All four motors: low band → grip on each side, high band → trackpad on each side (a tone at the game's frequency) |
 | Steam Deck | One tone per side on the trackpad actuators, at the game's frequency |
 | Steam Controller (2015) | One pulse train per side on the trackpad actuators; the pulse rhythm sets the frequency, the way it plays music |
+| Switch 2 Pro Controller (USB) | Native HD rumble 2: each side to its own motor, both bands with the game's frequencies (about 87–345 Hz; frequencies outside that range are clamped). Joy-Con 2 over USB too. SDL does not support them over Bluetooth yet |
 
 ### Settings
 
@@ -63,6 +64,7 @@ Changes apply right away. To turn HD Rumble off entirely, create an empty file n
 - **RenHDrum integration:** port of RenHDrum's `integrations/brontide-ns2` patches to Lichii (the Switch 2 command 214 was already in Lichii). SDL3 is built from source with RenHDrum's patches and linked statically, because the prebuilt SDL3 lacks the HD Rumble functions.
 - **Steam Controller (2026):** HD rumble on all four motors, with an SDL patch that lets the controller's haptic commands through.
 - **Steam Deck and Steam Controller (2015):** HD rumble as one tone per side on their trackpad actuators, with an SDL patch for the Deck's haptic commands.
+- **Switch 2 Pro Controller:** SDL drove it with two fixed frequencies and the same rumble on both motors; an SDL patch now lets Lichii send each motor both bands at the game's frequencies.
 - **Fix, Steam Controller:** the controller stops vibrating after ~50 ms and SDL only resent rumble every 2 s, so any steady vibration cut out almost at once. It is now resent every 40 ms, as in the latest SDL.
 - **Fix, DualSense over USB:** Lichii closed when the controller was unplugged. The USB haptics shut down SDL's audio subsystem on disconnect, destroying the game's own audio with it. It now stays up while Lichii runs.
 - **Fix:** unsafe access to the Steam Controller while it disconnects.
@@ -90,6 +92,7 @@ cmake --build build
 - [Lichii](https://github.com/zortos293/Lichii) by zortos293 and the projects it derives from (Eglantine, Eden, yuzu, Sudachi): GPL.
 - [RenHDrum](https://github.com/trzz1214/RenHDrum) by trzz1214: MIT / Apache-2.0. Builds ship its licenses.
 - [SDL](https://github.com/libsdl-org/SDL): zlib.
+- Switch 2 rumble frequency encoding from [joycon2-dongle](https://github.com/MukiEX/joycon2-dongle) by MukiEX: GPL-3.0.
 
 ## Este fork: Lichii + RenHDrum (HD Rumble)
 
@@ -114,6 +117,7 @@ GitHub Actions genera las builds de los dos sistemas: entra en la última ejecuc
 | Steam Controller (2026) | Los cuatro motores: banda grave → empuñadura de cada lado, banda aguda → trackpad de cada lado (tono a la frecuencia del juego) |
 | Steam Deck | Un tono por lado en los actuadores de los trackpads, a la frecuencia del juego |
 | Steam Controller (2015) | Un tren de pulsos por lado en los actuadores de los trackpads; el ritmo de los pulsos marca la frecuencia, igual que cuando "toca música" |
+| Switch 2 Pro Controller (USB) | HD Rumble 2 nativo: cada lado a su motor, las dos bandas con las frecuencias del juego (unos 87–345 Hz; lo que se sale de ese rango queda en el extremo). También Joy-Con 2 por USB. SDL aún no los soporta por Bluetooth |
 
 ### Ajustes
 
@@ -131,6 +135,7 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 - **Integración de RenHDrum:** port de los parches `integrations/brontide-ns2` de RenHDrum a Lichii (el comando 214 de Switch 2 ya estaba en Lichii). SDL3 se compila desde el código fuente con los parches de RenHDrum y se enlaza en estático, porque la versión precompilada no tiene las funciones de HD Rumble.
 - **Steam Controller (2026):** vibración HD en los cuatro motores. Incluye un parche de SDL que deja pasar al mando sus comandos de vibración.
 - **Steam Deck y Steam Controller (2015):** vibración HD como un tono por lado en los actuadores de los trackpads, con un parche de SDL para los comandos hápticos de la Deck.
+- **Switch 2 Pro Controller:** SDL lo movía con dos frecuencias fijas y la misma vibración en los dos motores; un parche de SDL permite ahora que Lichii mande a cada motor las dos bandas con las frecuencias del juego.
 - **Corrección, Steam Controller:** el mando corta la vibración a los ~50 ms y SDL solo la reenviaba cada 2 s, así que cualquier vibración constante se cortaba casi enseguida. Ahora se reenvía cada 40 ms, como en la versión más reciente de SDL.
 - **Corrección, DualSense por USB:** Lichii se cerraba al desconectar el mando. Los hápticos USB apagaban el sistema de audio de SDL al desconectarse y con él destruían el sonido del juego. Ahora se mantiene activo mientras Lichii está abierto.
 - **Corrección:** acceso inseguro al Steam Controller durante la desconexión.
@@ -158,6 +163,7 @@ Por defecto `RENHDRUM_DIR` apunta a `../RenHDrum` respecto a Lichii. En Windows 
 - [Lichii](https://github.com/zortos293/Lichii), de zortos293 y los proyectos de los que deriva (Eglantine, Eden, yuzu, Sudachi): GPL.
 - [RenHDrum](https://github.com/trzz1214/RenHDrum), de trzz1214: MIT / Apache-2.0. Las builds incluyen sus licencias.
 - [SDL](https://github.com/libsdl-org/SDL): zlib.
+- Codificación de frecuencias del rumble de Switch 2 de [joycon2-dongle](https://github.com/MukiEX/joycon2-dongle), de MukiEX: GPL-3.0.
 
 ## Downloads and setup
 
