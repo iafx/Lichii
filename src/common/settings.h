@@ -898,16 +898,12 @@ struct Values {
     // RenHDrum HD Rumble (Configure Vibration > HD Rumble)
     // Boost for quiet and medium effects, in percent: 100 = what the game asks for, up to 400
     Setting<int> hd_rumble_boost{linkage, 100, "hd_rumble_boost", Category::Controls};
-    // DualSense haptics volume, 10-125 %: 100 % = RenHDrum's calibrated ceiling (80 % of the
-    // actuators' full scale, to protect them), 125 % = the actuators' full scale
-    Setting<int> dualsense_haptics_volume{linkage, 100, "dualsense_haptics_volume", Category::Controls};
-    // Xbox One rumble gain on RenHDrum's motor output, 25-1000 %; the motors' maximum still caps it
-    Setting<int> xbox_rumble_gain{linkage, 100, "xbox_rumble_gain", Category::Controls};
     // Steam Deck (one tone per trackpad motor): play the high band pulsed at the low band's
     // frequency instead of the stronger band only
     Setting<bool> steam_hd_layered{linkage, false, "steam_hd_layered", Category::Controls};
-    // Steam Controller / Steam Deck trackpad tone gain in dB, -20 to +6
-    Setting<int> steam_trackpad_gain_db{linkage, 0, "steam_trackpad_gain_db", Category::Controls};
+    // Steam Controller / Steam Deck trackpad tone gain in dB, -20 to +6 (default +6: the most the
+    // firmware takes before its own limiting; the small trackpad actuators feel weak at 0 dB)
+    Setting<int> steam_trackpad_gain_db{linkage, 6, "steam_trackpad_gain_db", Category::Controls};
 
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};
     Setting<std::string> udp_input_servers{linkage, "127.0.0.1:26760", "udp_input_servers",

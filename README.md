@@ -53,12 +53,10 @@ GitHub Actions builds both systems; pick the latest green run and download it un
 **Emulation → Configure → Controls → Vibration → Configure**, **HD Rumble** section:
 
 - **Boost** (100–400 %): makes quiet and medium effects stronger. RenHDrum sends the game's amplitude as is, without the curve the standard rumble applies, so without a boost it can feel weak. 100 % changes nothing; strong effects never go past the controller's maximum.
-- **Steam Controller / Steam Deck trackpads** (-20 to +6 dB): extra strength for the trackpads.
-- **DualSense haptics** (10–125 %): 100 % is RenHDrum's calibrated ceiling, 80 % of the actuators' full scale, chosen by RenHDrum's authors to protect them; up to 125 % reaches the full scale.
-- **Xbox One motors** (25–1000 %): strength of RenHDrum's Xbox One rumble, up to the motors' maximum.
+- **Steam Controller / Steam Deck trackpads** (-20 to +6 dB, default +6): strength of the trackpad haptics; +6 dB is the most the firmware takes before its own limiting.
 - **Steam Deck: layer both bands (experimental)**: each Deck trackpad motor plays one tone, so by default it carries the game's stronger band. With this on it plays the high band pulsed at the low band's frequency instead.
 
-By default the game's full vibration reaches each controller's full strength, as on a console, wherever that maps directly: Switch Pro Controller and Joy-Con, Switch 2 Pro Controller and Joy-Con 2, and Valve's controllers. The DualSense keeps RenHDrum's protective ceiling and the Xbox One its tuning until you raise them. To go further, the per-player vibration strength (Controls → Vibration) now goes up to 400 %: output is still capped at each controller's hardware maximum.
+By default the game's full vibration reaches each controller's full strength, as on a console, wherever that maps directly: Switch Pro Controller and Joy-Con, Switch 2 Pro Controller and Joy-Con 2, and Valve's controllers. The DualSense and the Xbox One controller keep RenHDrum's own calibration. To go further, the per-player vibration strength (Controls → Vibration) now goes up to 400 %: output is still capped at each controller's hardware maximum.
 
 Changes apply right away. To turn HD Rumble off entirely, create an empty file named `hdrumble_off` (no extension) next to `lichii.exe`.
 
@@ -85,7 +83,6 @@ Experimental. Support for Valve's controllers is based on SDL's public protocol 
 ```
 git clone --branch renhdrum https://github.com/<your-user>/Lichii.git
 git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
-for p in Lichii/.patch/renhdrum/*.patch; do git -C RenHDrum apply "$PWD/$p"; done
 (cd RenHDrum && cargo build --release)
 cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
 cmake --build build
@@ -131,12 +128,10 @@ GitHub Actions genera las builds de los dos sistemas: entra en la última ejecuc
 En **Emulación → Configurar → Controles → Vibración → Configurar**, sección **HD Rumble**:
 
 - **Boost** (100–400 %): refuerza las vibraciones suaves y medias. RenHDrum envía la intensidad del juego tal cual, sin la curva que aplica el rumble normal, y sin refuerzo puede notarse floja. Con 100 % no cambia nada; los efectos fuertes nunca pasan del máximo del mando.
-- **Steam Controller / Steam Deck trackpads** (-20 a +6 dB): fuerza extra de los trackpads.
-- **DualSense haptics** (10–125 %): 100 % es el techo calibrado de RenHDrum, el 80 % de la potencia máxima de los actuadores, elegido por sus autores para protegerlos; hasta 125 % llega al máximo.
-- **Xbox One motors** (25–1000 %): fuerza de la vibración de RenHDrum para el mando de Xbox One, hasta el máximo de sus motores.
+- **Steam Controller / Steam Deck trackpads** (-20 a +6 dB, por defecto +6): fuerza de los trackpads; +6 dB es lo máximo que admite el firmware antes de limitarlo él mismo.
 - **Steam Deck: layer both bands (experimental)**: cada motor de los trackpads de la Deck toca un único tono, así que por defecto lleva la banda más fuerte del juego. Con esta opción toca la banda aguda pulsada a la frecuencia de la grave.
 
-Por defecto, la vibración máxima del juego llega a la potencia máxima de cada mando, como en una consola, allí donde la correspondencia es directa: Pro Controller y Joy-Con de Switch, Switch 2 Pro Controller y Joy-Con 2, y los mandos de Valve. El DualSense mantiene el techo de protección de RenHDrum y el Xbox One su ajuste hasta que los subas. Para ir más allá, la intensidad de vibración por jugador (Controles → Vibración) llega ahora al 400 %: la salida sigue limitada al máximo del hardware de cada mando.
+Por defecto, la vibración máxima del juego llega a la potencia máxima de cada mando, como en una consola, allí donde la correspondencia es directa: Pro Controller y Joy-Con de Switch, Switch 2 Pro Controller y Joy-Con 2, y los mandos de Valve. El DualSense y el mando de Xbox One mantienen la calibración propia de RenHDrum. Para ir más allá, la intensidad de vibración por jugador (Controles → Vibración) llega ahora al 400 %: la salida sigue limitada al máximo del hardware de cada mando.
 
 Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea un archivo vacío llamado `hdrumble_off` (sin extensión) junto a `lichii.exe`.
 
@@ -163,7 +158,6 @@ Experimental. El soporte de los mandos de Valve se basa en el protocolo público
 ```
 git clone --branch renhdrum https://github.com/<tu-usuario>/Lichii.git
 git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
-for p in Lichii/.patch/renhdrum/*.patch; do git -C RenHDrum apply "$PWD/$p"; done
 (cd RenHDrum && cargo build --release)
 cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
 cmake --build build

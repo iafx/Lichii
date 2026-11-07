@@ -35,17 +35,6 @@ jobs:
           path: _renhdrum
 
       # renhdrum.dll + renhdrum.dll.lib (MSVC import library) in _renhdrum/target/release
-      # Lichii's changes to RenHDrum (.patch/renhdrum): DualSense haptics volume up to the
-      # actuators' full scale, settable while running
-      - name: Patch RenHDrum
-        shell: bash
-        run: |
-          set -euo pipefail
-          for patch in .patch/renhdrum/*.patch; do
-            echo "Applying $patch"
-            git -C _renhdrum apply --whitespace=nowarn "$GITHUB_WORKSPACE/$patch"
-          done
-
       - name: Build RenHDrum
         shell: bash
         working-directory: _renhdrum
