@@ -1,5 +1,5 @@
 diff --git a/src/joystick/hidapi/SDL_hidapi_switch2.c b/src/joystick/hidapi/SDL_hidapi_switch2.c
-index 773405c..1e69a14 100644
+index 773405c..e949468 100644
 --- a/src/joystick/hidapi/SDL_hidapi_switch2.c
 +++ b/src/joystick/hidapi/SDL_hidapi_switch2.c
 @@ -108,6 +108,16 @@ typedef struct
@@ -19,7 +19,7 @@ index 773405c..1e69a14 100644
      Switch2_StickCalibration left_stick;
      Switch2_StickCalibration right_stick;
      Uint8 left_trigger_zero;
-@@ -654,9 +664,35 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
+@@ -654,9 +664,41 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
      return SDL_Unsupported();
  }
  
@@ -42,6 +42,12 @@ index 773405c..1e69a14 100644
 +    if (device->product_id == USB_PRODUCT_NINTENDO_SWITCH2_GAMECUBE_CONTROLLER) {
 +        return SDL_Unsupported();
 +    }
++    if (device->is_bluetooth) {
++        // Only the USB rumble path below plays HD rumble. A Bluetooth path must put
++        // EncodeHDRumbleMotor() in its motor blocks before this check is removed; until then the
++        // caller gets "unsupported" and can fall back to SDL_RumbleJoystick().
++        return SDL_Unsupported();
++    }
 +    for (int motor = 0; motor < 2; ++motor) {
 +        const Uint8 *m = &effect[5 + motor * 8];
 +        ctx->hd_lo_freq[motor] = (Uint16)((m[0] | (m[1] << 8)) & 0x1FF);
@@ -56,7 +62,7 @@ index 773405c..1e69a14 100644
  }
  
  static bool HIDAPI_DriverSwitch2_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
-@@ -1037,13 +1073,35 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
+@@ -1037,13 +1079,48 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
      rumble_data[4] = (Uint8)(low_amp >> 8);
  }
  
@@ -69,6 +75,19 @@ index 773405c..1e69a14 100644
 +    for (int i = 0; i < 5; ++i) {
 +        rumble_data[i] = (Uint8)(w >> (8 * i));
 +    }
++}
++
++// Fills one motor's 5-byte operation (0 = left, 1 = right) from the HD rumble effect. Returns
++// false when no HD rumble effect is playing. The operation is the same over every transport; only
++// the packet around it differs.
++static bool EncodeHDRumbleMotor(SDL_DriverSwitch2_Context *ctx, int motor, Uint8 rumble_data[5])
++{
++    if (!ctx->hd_rumble) {
++        return false;
++    }
++    EncodeHDRumble2(ctx->hd_lo_freq[motor], ctx->hd_lo_amp[motor], ctx->hd_hi_freq[motor],
++                    ctx->hd_hi_amp[motor], rumble_data);
++    return true;
 +}
 +
  static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
@@ -94,31 +113,25 @@ index 773405c..1e69a14 100644
      Uint64 interval = RUMBLE_INTERVAL;
  
      if (timestamp < ctx->rumble_timestamp) {
-@@ -1077,7 +1135,14 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1077,7 +1154,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          Uint16 low_amp = (Uint16)((int)ctx->rumble_lo_amp * RUMBLE_MAX / UINT16_MAX);
          Uint16 high_amp = (Uint16)((int)ctx->rumble_hi_amp * RUMBLE_MAX / UINT16_MAX);
          rumble_data[0x01] = 0x50 | (ctx->rumble_seq & 0xf);
 -        EncodeHDRumble(ctx->rumble_hi_freq, high_amp, ctx->rumble_lo_freq, low_amp, &rumble_data[0x02]);
-+        if (ctx->hd_rumble) {
-+            // Joy-Con 2 have one motor: the left one plays the left side, the right one the right
-+            const int motor = ctx->device->product_id == USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT ? 1 : 0;
-+            EncodeHDRumble2(ctx->hd_lo_freq[motor], ctx->hd_lo_amp[motor], ctx->hd_hi_freq[motor],
-+                            ctx->hd_hi_amp[motor], &rumble_data[0x02]);
-+        } else {
++        // Joy-Con 2 have one motor: the left one plays the left side, the right one the right
++        const int first_motor = ctx->device->product_id == USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT ? 1 : 0;
++        if (!EncodeHDRumbleMotor(ctx, first_motor, &rumble_data[0x02])) {
 +            EncodeHDRumble(ctx->rumble_hi_freq, high_amp, ctx->rumble_lo_freq, low_amp, &rumble_data[0x02]);
 +        }
          switch (ctx->device->product_id) {
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_LEFT:
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT:
-@@ -1090,12 +1155,17 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1090,12 +1171,14 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          case USB_PRODUCT_NINTENDO_SWITCH2_PRO:
              rumble_data[0] = 0x2;
              SDL_memcpy(&rumble_data[0x11], &rumble_data[0x01], 6);
-+            if (ctx->hd_rumble) {
-+                // Second block: the right motor
-+                EncodeHDRumble2(ctx->hd_lo_freq[1], ctx->hd_lo_amp[1], ctx->hd_hi_freq[1],
-+                                ctx->hd_hi_amp[1], &rumble_data[0x12]);
-+            }
++            // Second block: the right motor
++            EncodeHDRumbleMotor(ctx, 1, &rumble_data[0x12]);
              break;
          }
      }

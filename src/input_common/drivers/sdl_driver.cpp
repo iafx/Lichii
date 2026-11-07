@@ -742,20 +742,25 @@ private:
 
         // Nintendo Switch controllers (VID 0x057E)
         if (vid == 0x057E) {
-            // Switch 2 Pro Controller / Joy-Con 2 (SDL supports them over USB only): native HD rumble
-            // with the game's frequencies, through SDL patch 0005
+            // Switch 2 Pro Controller / Joy-Con 2: native HD rumble with the game's frequencies through
+            // SDL patch 0005, on whatever connection that SDL plays it (USB in SDL 3.4). Where it does
+            // not (an SDL without the patch, or a connection the patch does not drive yet), the first
+            // rejected effect switches this pad back to plain rumble.
             if (pid == 0x2069 || pid == 0x2066 || pid == 0x2067) {
+                const bool is_bluetooth =
+                    SDL_GetJoystickConnectionState(sdl_joystick.get()) == SDL_JOYSTICK_CONNECTION_WIRELESS;
                 pad_name = pid == 0x2069 ? "Switch 2 Pro Controller"
                            : pid == 0x2067 ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)";
                 if (!HdRumbleOn()) {
                     LOG_INFO(Input, "HD Rumble off: {} {:04X}:{:04X} uses plain rumble", pad_name, vid, pid);
-                    PublishPad({pad_name, false, false, "off", false});
+                    PublishPad({pad_name, false, is_bluetooth, "off", false});
                     return;
                 }
                 switch2_hd = true;
                 switch2_state = {};
-                LOG_INFO(Input, "Initialized Switch 2 HD rumble for {:04X}:{:04X}", vid, pid);
-                PublishPad({pad_name, false, false, "Switch 2 HD rumble", false});
+                LOG_INFO(Input, "Initialized Switch 2 HD rumble for {:04X}:{:04X} (BT: {})", vid, pid,
+                         is_bluetooth);
+                PublishPad({pad_name, false, is_bluetooth, "Switch 2 HD rumble", false});
                 return;
             }
             if (pid == 0x2009 || pid == 0x2006 || pid == 0x2007) {
@@ -915,12 +920,22 @@ private:
             switch2_state.last_send_us = now_us;
             state = switch2_state;
         }
-        SendSwitch2Rumble(joystick, state.motor);
-        return true;
+        if (SendSwitch2Rumble(joystick, state.motor)) {
+            return true;
+        }
+        // This SDL does not play the HD rumble effect on this connection: plain rumble from now on
+        // (this sample included), until the controller reconnects
+        LOG_WARNING(Input, "Switch 2 HD rumble not available here ({}), using plain rumble",
+                    SDL_GetError());
+        {
+            std::scoped_lock lock{renhdrum_mutex};
+            switch2_hd = false;
+        }
+        return false;
     }
 
     // SDL patch 0005 effect: "HDR2", flags, then per motor low freq, low amp, high freq, high amp
-    static void SendSwitch2Rumble(SDL_Joystick* joystick, const std::array<Switch2Motor, 2>& motors) {
+    static bool SendSwitch2Rumble(SDL_Joystick* joystick, const std::array<Switch2Motor, 2>& motors) {
         std::array<u8, 21> effect{'H', 'D', 'R', '2', 0};
         for (size_t i = 0; i < motors.size(); ++i) {
             const auto& m = motors[i];
@@ -930,9 +945,7 @@ private:
                 *out++ = static_cast<u8>(value >> 8);
             }
         }
-        if (!SDL_SendJoystickEffect(joystick, effect.data(), static_cast<int>(effect.size()))) {
-            LOG_DEBUG(Input, "Switch 2 HD rumble failed: {}", SDL_GetError());
-        }
+        return SDL_SendJoystickEffect(joystick, effect.data(), static_cast<int>(effect.size()));
     }
 
     // HD rumble on Valve controllers. Their haptic actuators take tones (one frequency at a time per

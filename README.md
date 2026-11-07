@@ -46,7 +46,7 @@ GitHub Actions builds both systems; pick the latest green run and download it un
 | Steam Controller (2026) | All four motors: low band → grip on each side, high band → trackpad on each side (a tone at the game's frequency) |
 | Steam Deck | One tone per side on the trackpad actuators, at the game's frequency |
 | Steam Controller (2015) | One pulse train per side on the trackpad actuators; the pulse rhythm sets the frequency, the way it plays music |
-| Switch 2 Pro Controller (USB) | Native HD rumble 2: each side to its own motor, both bands with the game's frequencies (about 87–345 Hz; frequencies outside that range are clamped). Joy-Con 2 over USB too. SDL does not support them over Bluetooth yet |
+| Switch 2 Pro Controller (USB) | Native HD rumble 2: each side to its own motor, both bands with the game's frequencies (about 87–345 Hz; frequencies outside that range are clamped). Joy-Con 2 over USB too. SDL does not support them over Bluetooth yet; wherever SDL cannot play HD rumble on a connection, Lichii falls back to plain rumble |
 
 ### Settings
 
@@ -117,7 +117,7 @@ GitHub Actions genera las builds de los dos sistemas: entra en la última ejecuc
 | Steam Controller (2026) | Los cuatro motores: banda grave → empuñadura de cada lado, banda aguda → trackpad de cada lado (tono a la frecuencia del juego) |
 | Steam Deck | Un tono por lado en los actuadores de los trackpads, a la frecuencia del juego |
 | Steam Controller (2015) | Un tren de pulsos por lado en los actuadores de los trackpads; el ritmo de los pulsos marca la frecuencia, igual que cuando "toca música" |
-| Switch 2 Pro Controller (USB) | HD Rumble 2 nativo: cada lado a su motor, las dos bandas con las frecuencias del juego (unos 87–345 Hz; lo que se sale de ese rango queda en el extremo). También Joy-Con 2 por USB. SDL aún no los soporta por Bluetooth |
+| Switch 2 Pro Controller (USB) | HD Rumble 2 nativo: cada lado a su motor, las dos bandas con las frecuencias del juego (unos 87–345 Hz; lo que se sale de ese rango queda en el extremo). También Joy-Con 2 por USB. SDL aún no los soporta por Bluetooth; si en alguna conexión SDL no puede reproducir la vibración HD, Lichii vuelve a la vibración normal |
 
 ### Ajustes
 
