@@ -31,7 +31,10 @@ This fork adds [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/t
 
 ### Downloads
 
-GitHub Actions builds Windows x64: open [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml), pick the latest green run and download the zip under **Artifacts** (the artifact is a zip inside a zip: extract both). Run `lichii.exe` from its own folder, since `renhdrum.dll` has to sit next to it.
+GitHub Actions builds both systems; pick the latest green run and download it under **Artifacts** (each artifact comes zipped: extract it first).
+
+- **Windows x64:** [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml). Extract the zip inside too and run `lichii.exe` from its own folder, since `renhdrum.dll` has to sit next to it.
+- **Linux x86_64** (Steam Deck included): [Actions → lichii-renhdrum-linux](../../actions/workflows/renhdrum-linux.yml). The AppImage needs glibc 2.39 or newer (SteamOS 3.6+, Ubuntu 24.04, Fedora 40, Arch); make it executable (`chmod +x`) and run it. The tar.gz uses your system's Qt 6.
 
 ### What vibrates and how
 
@@ -41,14 +44,17 @@ GitHub Actions builds Windows x64: open [Actions → lichii-renhdrum-windows](..
 | DualSense / DualSense Edge | RenHDrum haptics: 4-channel audio over USB, output report 0x32 over Bluetooth |
 | Xbox One controller | RenHDrum rumble, trigger motors included |
 | Steam Controller (2026) | All four motors: low band → grip on each side, high band → trackpad on each side (a tone at the game's frequency) |
+| Steam Deck | One tone per side on the trackpad actuators, at the game's frequency |
+| Steam Controller (2015) | One pulse train per side on the trackpad actuators; the pulse rhythm sets the frequency, the way it plays music |
 
 ### Settings
 
 **Emulation → Configure → Controls → Vibration → Configure**, **HD Rumble** section:
 
 - **Boost** (100–400 %): makes quiet and medium effects stronger. RenHDrum sends the game's amplitude as is, without the curve the standard rumble applies, so without a boost it can feel weak. 100 % changes nothing; strong effects never go past the controller's maximum.
-- **Steam Controller**: "4 motors" (grips + trackpads) or "Trackpads only" (one tone per side).
-- **Steam Controller trackpads** (-20 to +6 dB): extra strength for the trackpads.
+- **Steam Controller (2026)**: "4 motors" (grips + trackpads) or "Trackpads only" (one tone per side).
+- **Steam Controller / Steam Deck trackpads** (-20 to +6 dB): extra strength for the trackpads.
+- **Layer both bands on one motor (experimental)**: on the Steam Deck and the Steam Controller (2026) in trackpads-only mode, each motor plays one tone, so by default it carries the game's stronger band. With this on it plays the high band pulsed at the low band's frequency instead.
 
 Changes apply right away. To turn HD Rumble off entirely, create an empty file named `hdrumble_off` (no extension) next to `lichii.exe`.
 
@@ -56,15 +62,16 @@ Changes apply right away. To turn HD Rumble off entirely, create an empty file n
 
 - **RenHDrum integration:** port of RenHDrum's `integrations/brontide-ns2` patches to Lichii (the Switch 2 command 214 was already in Lichii). SDL3 is built from source with RenHDrum's patches and linked statically, because the prebuilt SDL3 lacks the HD Rumble functions.
 - **Steam Controller (2026):** HD rumble on all four motors, with an SDL patch that lets the controller's haptic commands through.
+- **Steam Deck and Steam Controller (2015):** HD rumble as one tone per side on their trackpad actuators, with an SDL patch for the Deck's haptic commands.
 - **Fix, Steam Controller:** the controller stops vibrating after ~50 ms and SDL only resent rumble every 2 s, so any steady vibration cut out almost at once. It is now resent every 40 ms, as in the latest SDL.
 - **Fix, DualSense over USB:** Lichii closed when the controller was unplugged. The USB haptics shut down SDL's audio subsystem on disconnect, destroying the game's own audio with it. It now stays up while Lichii runs.
 - **Fix:** unsafe access to the Steam Controller while it disconnects.
 - **Diagnostics:** while a game vibrates, the log shows every 5 s the range of frequencies and amplitudes it sends (`HD Rumble from game ...`).
-- **CI:** [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) builds RenHDrum and Lichii for Windows x64 (MSVC) and uploads the zip.
+- **CI:** [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) and [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml) build RenHDrum and Lichii for Windows x64 (MSVC) and Linux x86_64 (AppImage + tar.gz).
 
 ### Status
 
-Experimental. Steam Controller (2026) support is based on SDL's public protocol and may need tuning, for example if one side vibrates swapped. If something breaks, open an issue with the controller, whether it is wired or Bluetooth, and the log (**File → Open Lichii Folders → Log Folder**).
+Experimental. Support for Valve's controllers is based on SDL's public protocol and may need tuning, for example if one side vibrates swapped. On the Steam Deck, Lichii must see the Deck's own controller: map the "Steam Deck" device in Lichii's controls rather than Steam's virtual gamepad. If something breaks, open an issue with the controller, whether it is wired or Bluetooth, and the log (**File → Open Lichii Folders → Log Folder**).
 
 ### Building
 
@@ -92,7 +99,10 @@ Este fork añade a Lichii la vibración HD de [RenHDrum v0.2.1](https://github.c
 
 ### Descargas
 
-Las builds de Windows x64 las genera GitHub Actions: abre [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml), entra en la última ejecución en verde y descarga el zip de **Artifacts** (el artifact es un zip que contiene otro zip; descomprime los dos). Ejecuta `lichii.exe` sin sacarlo de su carpeta: `renhdrum.dll` tiene que estar al lado.
+GitHub Actions genera las builds de los dos sistemas: entra en la última ejecución en verde y descárgala en **Artifacts** (cada artifact viene comprimido: descomprímelo primero).
+
+- **Windows x64:** [Actions → lichii-renhdrum-windows](../../actions/workflows/renhdrum-windows.yml). Descomprime también el zip de dentro y ejecuta `lichii.exe` sin sacarlo de su carpeta: `renhdrum.dll` tiene que estar al lado.
+- **Linux x86_64** (incluida la Steam Deck): [Actions → lichii-renhdrum-linux](../../actions/workflows/renhdrum-linux.yml). El AppImage necesita glibc 2.39 o más reciente (SteamOS 3.6+, Ubuntu 24.04, Fedora 40, Arch); hazlo ejecutable (`chmod +x`) y ábrelo. El tar.gz usa el Qt 6 de tu sistema.
 
 ### Qué vibra y cómo
 
@@ -102,14 +112,17 @@ Las builds de Windows x64 las genera GitHub Actions: abre [Actions → lichii-re
 | DualSense / DualSense Edge | Hápticos de RenHDrum: por USB como audio de 4 canales, por Bluetooth con el informe 0x32 |
 | Mando de Xbox One | Rumble de RenHDrum, incluidos los motores de los gatillos |
 | Steam Controller (2026) | Los cuatro motores: banda grave → empuñadura de cada lado, banda aguda → trackpad de cada lado (tono a la frecuencia del juego) |
+| Steam Deck | Un tono por lado en los actuadores de los trackpads, a la frecuencia del juego |
+| Steam Controller (2015) | Un tren de pulsos por lado en los actuadores de los trackpads; el ritmo de los pulsos marca la frecuencia, igual que cuando "toca música" |
 
 ### Ajustes
 
 En **Emulación → Configurar → Controles → Vibración → Configurar**, sección **HD Rumble**:
 
 - **Boost** (100–400 %): refuerza las vibraciones suaves y medias. RenHDrum envía la intensidad del juego tal cual, sin la curva que aplica el rumble normal, y sin refuerzo puede notarse floja. Con 100 % no cambia nada; los efectos fuertes nunca pasan del máximo del mando.
-- **Steam Controller**: "4 motors" (empuñaduras + trackpads) o "Trackpads only" (un tono por lado).
-- **Steam Controller trackpads** (-20 a +6 dB): fuerza extra de los trackpads.
+- **Steam Controller (2026)**: "4 motors" (empuñaduras + trackpads) o "Trackpads only" (un tono por lado).
+- **Steam Controller / Steam Deck trackpads** (-20 a +6 dB): fuerza extra de los trackpads.
+- **Layer both bands on one motor (experimental)**: en la Steam Deck y en el Steam Controller (2026) en modo solo trackpads, cada motor toca un único tono, así que por defecto lleva la banda más fuerte del juego. Con esta opción toca la banda aguda pulsada a la frecuencia de la grave.
 
 Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea un archivo vacío llamado `hdrumble_off` (sin extensión) junto a `lichii.exe`.
 
@@ -117,15 +130,16 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 
 - **Integración de RenHDrum:** port de los parches `integrations/brontide-ns2` de RenHDrum a Lichii (el comando 214 de Switch 2 ya estaba en Lichii). SDL3 se compila desde el código fuente con los parches de RenHDrum y se enlaza en estático, porque la versión precompilada no tiene las funciones de HD Rumble.
 - **Steam Controller (2026):** vibración HD en los cuatro motores. Incluye un parche de SDL que deja pasar al mando sus comandos de vibración.
+- **Steam Deck y Steam Controller (2015):** vibración HD como un tono por lado en los actuadores de los trackpads, con un parche de SDL para los comandos hápticos de la Deck.
 - **Corrección, Steam Controller:** el mando corta la vibración a los ~50 ms y SDL solo la reenviaba cada 2 s, así que cualquier vibración constante se cortaba casi enseguida. Ahora se reenvía cada 40 ms, como en la versión más reciente de SDL.
 - **Corrección, DualSense por USB:** Lichii se cerraba al desconectar el mando. Los hápticos USB apagaban el sistema de audio de SDL al desconectarse y con él destruían el sonido del juego. Ahora se mantiene activo mientras Lichii está abierto.
 - **Corrección:** acceso inseguro al Steam Controller durante la desconexión.
 - **Diagnóstico:** mientras el juego vibra, el log muestra cada 5 s el rango de frecuencias e intensidades que envía (`HD Rumble from game ...`).
-- **CI:** workflow [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) que compila RenHDrum y Lichii para Windows x64 (MSVC) y publica el zip.
+- **CI:** workflows [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) y [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml), que compilan RenHDrum y Lichii para Windows x64 (MSVC) y Linux x86_64 (AppImage + tar.gz).
 
 ### Estado
 
-Experimental. El soporte del Steam Controller (2026) se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Archivo → Abrir carpetas de Lichii → Carpeta de logs**).
+Experimental. El soporte de los mandos de Valve se basa en el protocolo público de SDL y puede necesitar ajustes, por ejemplo si un lado vibra cambiado. En la Steam Deck, Lichii tiene que ver el mando propio de la Deck: en los controles de Lichii asigna el dispositivo "Steam Deck", no el mando virtual de Steam. Si algo falla, abre un issue con el mando, si va por cable o Bluetooth, y el log (**Archivo → Abrir carpetas de Lichii → Carpeta de logs**).
 
 ### Compilar
 
