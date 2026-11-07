@@ -1,5 +1,5 @@
 diff --git a/src/joystick/hidapi/SDL_hidapi_switch2.c b/src/joystick/hidapi/SDL_hidapi_switch2.c
-index 773405c..e949468 100644
+index 773405c..2678ea8 100644
 --- a/src/joystick/hidapi/SDL_hidapi_switch2.c
 +++ b/src/joystick/hidapi/SDL_hidapi_switch2.c
 @@ -108,6 +108,16 @@ typedef struct
@@ -19,7 +19,7 @@ index 773405c..e949468 100644
      Switch2_StickCalibration left_stick;
      Switch2_StickCalibration right_stick;
      Uint8 left_trigger_zero;
-@@ -654,9 +664,41 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
+@@ -654,9 +664,45 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
      return SDL_Unsupported();
  }
  
@@ -30,6 +30,9 @@ index 773405c..e949468 100644
 +// (Uint16 little endian each): low band frequency code, low band amplitude (0-1023), high band
 +// frequency code, high band amplitude (0-1023). Frequency codes are 10 bits, 256 per octave,
 +// 0x0E1 = 160 Hz. Each effect plays for SWITCH2_HD_RUMBLE_HOLD_MS; send again to keep it going.
++// It goes out right away (within the rumble interval) instead of waiting for the next input report.
++static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx);
++
  static bool HIDAPI_DriverSwitch2_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
  {
 -    return SDL_Unsupported();
@@ -58,11 +61,12 @@ index 773405c..e949468 100644
 +    ctx->hd_rumble = true;
 +    ctx->hd_rumble_expire = SDL_GetTicks() + SWITCH2_HD_RUMBLE_HOLD_MS;
 +    ctx->rumble_updated = true;
++    UpdateRumble(ctx);
 +    return true;
  }
  
  static bool HIDAPI_DriverSwitch2_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
-@@ -1037,13 +1079,48 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
+@@ -1037,13 +1083,51 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
      rumble_data[4] = (Uint8)(low_amp >> 8);
  }
  
@@ -77,16 +81,19 @@ index 773405c..e949468 100644
 +    }
 +}
 +
-+// Fills one motor's 5-byte operation (0 = left, 1 = right) from the HD rumble effect. Returns
-+// false when no HD rumble effect is playing. The operation is the same over every transport; only
-+// the packet around it differs.
-+static bool EncodeHDRumbleMotor(SDL_DriverSwitch2_Context *ctx, int motor, Uint8 rumble_data[5])
++// Fills one motor's block of three 5-byte operations (0 = left, 1 = right) from the HD rumble
++// effect, the same operation in all three, as Switch2Connect does, so no slot of the packet plays
++// silence. Returns false when no HD rumble effect is playing. The operation is the same over every
++// transport; only the packet around it differs.
++static bool EncodeHDRumbleMotor(SDL_DriverSwitch2_Context *ctx, int motor, Uint8 rumble_data[15])
 +{
 +    if (!ctx->hd_rumble) {
 +        return false;
 +    }
 +    EncodeHDRumble2(ctx->hd_lo_freq[motor], ctx->hd_lo_amp[motor], ctx->hd_hi_freq[motor],
 +                    ctx->hd_hi_amp[motor], rumble_data);
++    SDL_memcpy(&rumble_data[5], rumble_data, 5);
++    SDL_memcpy(&rumble_data[10], rumble_data, 5);
 +    return true;
 +}
 +
@@ -113,7 +120,7 @@ index 773405c..e949468 100644
      Uint64 interval = RUMBLE_INTERVAL;
  
      if (timestamp < ctx->rumble_timestamp) {
-@@ -1077,7 +1154,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1077,7 +1161,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          Uint16 low_amp = (Uint16)((int)ctx->rumble_lo_amp * RUMBLE_MAX / UINT16_MAX);
          Uint16 high_amp = (Uint16)((int)ctx->rumble_hi_amp * RUMBLE_MAX / UINT16_MAX);
          rumble_data[0x01] = 0x50 | (ctx->rumble_seq & 0xf);
@@ -126,7 +133,7 @@ index 773405c..e949468 100644
          switch (ctx->device->product_id) {
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_LEFT:
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT:
-@@ -1090,12 +1171,14 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1090,12 +1178,14 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          case USB_PRODUCT_NINTENDO_SWITCH2_PRO:
              rumble_data[0] = 0x2;
              SDL_memcpy(&rumble_data[0x11], &rumble_data[0x01], 6);

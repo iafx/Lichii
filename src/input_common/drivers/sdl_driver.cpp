@@ -636,6 +636,11 @@ public:
         SDL_SendJoystickEffect(joystick, packet, sizeof(packet));
     }
 
+    // Every input poll: sends a Switch 2 HD rumble change held back by the gap, or a refresh
+    void TickSwitch2(int64_t now_us) {
+        SendSwitch2IfDue(now_us);
+    }
+
     // Vibration boost for the RenHDrum paths: Configure Vibration > HD Rumble > Boost (100-400 %,
     // 100 = what the game asks for). RenHDrum sends the game's amplitude as is, without the curve
     // the standard rumble applies, so quiet effects feel weak.
@@ -882,9 +887,16 @@ private:
         std::array<Switch2Motor, 2> motor{};
         std::array<Switch2Motor, 2> sent{};
         int64_t last_send_us{0};
+        int64_t last_game_us{0};
     };
+    // A change that comes within SWITCH2_MIN_GAP_US of the last packet (the right motor right after
+    // the left one, for example) is not dropped: TickSwitch2, called every input poll (~1 ms), sends
+    // it as soon as the gap has passed. The game's vibration reaches us only when it changes, so the
+    // tick also refreshes a steady vibration before SDL's 60 ms hold runs out, for up to
+    // SWITCH2_STALE_US after the game's last change, so a paused or stalled game goes quiet.
     static constexpr int64_t SWITCH2_MIN_GAP_US = 5'000;
     static constexpr int64_t SWITCH2_REFRESH_US = 30'000; // SDL holds each effect for 60 ms
+    static constexpr int64_t SWITCH2_STALE_US = 1'000'000;
     static constexpr f32 SWITCH2_AMP_FULL_SCALE = 1023.0f;
 
     static u16 Switch2FrequencyCode(f32 hz) {
@@ -893,15 +905,12 @@ private:
     }
 
     bool Switch2Vibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
-        Switch2State state{};
-        SDL_Joystick* joystick = nullptr;
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!switch2_hd) {
                 return false;
             }
-            joystick = sdl_joystick.get();
-            if (!joystick) {
+            if (!sdl_joystick) {
                 return true;
             }
             auto& motor = switch2_state.motor[is_right ? 1 : 0];
@@ -911,28 +920,45 @@ private:
                 std::lround(std::clamp(v.low_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
             motor.hi_amp = static_cast<u16>(
                 std::lround(std::clamp(v.high_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
-            const bool changed = switch2_state.motor != switch2_state.sent;
-            const bool playing = switch2_state.motor[0].lo_amp || switch2_state.motor[0].hi_amp ||
-                                 switch2_state.motor[1].lo_amp || switch2_state.motor[1].hi_amp;
-            const int64_t since = now_us - switch2_state.last_send_us;
-            if (since < SWITCH2_MIN_GAP_US || (!changed && (!playing || since < SWITCH2_REFRESH_US))) {
-                return true;
-            }
-            switch2_state.sent = switch2_state.motor;
-            switch2_state.last_send_us = now_us;
-            state = switch2_state;
+            switch2_state.last_game_us = now_us;
         }
-        if (SendSwitch2Rumble(joystick, state.motor)) {
-            return true;
-        }
-        // This SDL does not play the HD rumble effect on this connection: plain rumble from now on
-        // (this sample included), until the controller reconnects
-        LOG_WARNING(Input, "Switch 2 HD rumble not available here ({}), using plain rumble",
-                    SDL_GetError());
+        // false: this SDL does not play the HD rumble effect, so this sample takes plain rumble
+        return SendSwitch2IfDue(now_us);
+    }
+
+    // Sends the motors' state when it changed and the gap since the last packet has passed, or to
+    // refresh a vibration still playing. Returns false only when SDL refused the HD rumble effect.
+    bool SendSwitch2IfDue(int64_t now_us) {
+        std::array<Switch2Motor, 2> motors{};
+        SDL_Joystick* joystick = nullptr;
         {
             std::scoped_lock lock{renhdrum_mutex};
-            switch2_hd = false;
+            if (!switch2_hd || !sdl_joystick) {
+                return true;
+            }
+            joystick = sdl_joystick.get();
+            const auto& m = switch2_state.motor;
+            const bool changed = m != switch2_state.sent;
+            const bool playing = m[0].lo_amp || m[0].hi_amp || m[1].lo_amp || m[1].hi_amp;
+            const bool fresh = now_us - switch2_state.last_game_us < SWITCH2_STALE_US;
+            const int64_t since = now_us - switch2_state.last_send_us;
+            const bool due = changed ? since >= SWITCH2_MIN_GAP_US
+                                     : playing && fresh && since >= SWITCH2_REFRESH_US;
+            if (!due) {
+                return true;
+            }
+            switch2_state.sent = m;
+            switch2_state.last_send_us = now_us;
+            motors = m;
         }
+        if (SendSwitch2Rumble(joystick, motors)) {
+            return true;
+        }
+        // Plain rumble from now on, until the controller reconnects
+        LOG_WARNING(Input, "Switch 2 HD rumble not available here ({}), using plain rumble",
+                    SDL_GetError());
+        std::scoped_lock lock{renhdrum_mutex};
+        switch2_hd = false;
         return false;
     }
 
@@ -1821,6 +1847,9 @@ void SDLDriver::PumpEvents() {
             }
             if (joystick && joystick->GetXboxRumble()) {
                 joystick->TickXboxRumble(now_us);
+            }
+            if (joystick) {
+                joystick->TickSwitch2(now_us);
             }
         }
     }
