@@ -70,7 +70,7 @@ Changes apply right away. To turn HD Rumble off entirely, create an empty file n
 - **Fix, DualSense over USB:** Lichii closed when the controller was unplugged. The USB haptics shut down SDL's audio subsystem on disconnect, destroying the game's own audio with it. It now stays up while Lichii runs.
 - **Fix:** unsafe access to the Steam Controller while it disconnects.
 - **Diagnostics:** while a game vibrates, the log shows every 5 s the range of frequencies and amplitudes it sends (`HD Rumble from game ...`).
-- **CI:** [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) and [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml) build RenHDrum and Lichii for Windows x64 (MSVC) and Linux x86_64 (AppImage + tar.gz).
+- **CI:** [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) and [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml) build RenHDrum and Lichii for Windows x64 and Linux x86_64 (AppImage + tar.gz). By default they are PGO builds, made like Lichii's own `-pgo` releases (Windows: clang-cl, ThinLTO and `lichii-windows.profdata`; Linux: clang with `eglantine.profdata`); untick **pgo** under **Run workflow** for the plain MSVC/GCC build.
 
 ### Status
 
@@ -145,7 +145,7 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 - **Corrección, DualSense por USB:** Lichii se cerraba al desconectar el mando. Los hápticos USB apagaban el sistema de audio de SDL al desconectarse y con él destruían el sonido del juego. Ahora se mantiene activo mientras Lichii está abierto.
 - **Corrección:** acceso inseguro al Steam Controller durante la desconexión.
 - **Diagnóstico:** mientras el juego vibra, el log muestra cada 5 s el rango de frecuencias e intensidades que envía (`HD Rumble from game ...`).
-- **CI:** workflows [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) y [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml), que compilan RenHDrum y Lichii para Windows x64 (MSVC) y Linux x86_64 (AppImage + tar.gz).
+- **CI:** workflows [`renhdrum-windows.yml`](.github/workflows/renhdrum-windows.yml) y [`renhdrum-linux.yml`](.github/workflows/renhdrum-linux.yml), que compilan RenHDrum y Lichii para Windows x64 y Linux x86_64 (AppImage + tar.gz). Por defecto son builds PGO, hechas como las versiones `-pgo` oficiales de Lichii (Windows: clang-cl, ThinLTO y `lichii-windows.profdata`; Linux: clang con `eglantine.profdata`); desmarca **pgo** en **Run workflow** para la build normal con MSVC/GCC.
 
 ### Estado
 

@@ -1,13 +1,19 @@
 name: lichii-renhdrum-windows
 
-# Lichii (nx2) + RenHDrum v0.2.1 HD Rumble / DualSense haptics, Windows x64 (MSVC).
+# Lichii (nx2) + RenHDrum v0.2.1 HD Rumble / DualSense haptics, Windows x64.
 # Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
+# By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
+# and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
 on:
   workflow_dispatch:
     inputs:
       renhdrum_ref:
         description: RenHDrum tag or commit to build
         default: v0.2.1
+      pgo:
+        description: PGO build (clang-cl, ThinLTO, lichii-windows.profdata)
+        type: boolean
+        default: true
   push:
     branches:
       - renhdrum
@@ -17,12 +23,15 @@ permissions:
 
 jobs:
   windows:
-    name: windows-x86_64 + RenHDrum
+    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + RenHDrum
     runs-on: windows-2022
     env:
       SCCACHE_DIR: ${{ github.workspace }}/.sccache
       SCCACHE_CACHE_SIZE: 3G
       RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.2.1' }}
+      PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
+      PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }}
+      PROFILE: lichii-windows.profdata
     steps:
       - name: Check out Lichii
         uses: actions/checkout@v5
@@ -60,6 +69,19 @@ jobs:
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
+      # clang-cl compiles against the MSVC headers, libraries and SDK from the previous step; only
+      # the compiler, linker and archiver come from this LLVM (the version Lichii's release uses,
+      # which reads lichii-windows.profdata)
+      - name: Install LLVM
+        if: env.PGO == 'true'
+        shell: pwsh
+        run: ./tools/windows/install-llvm.ps1
+
+      - name: Check PGO profile
+        if: env.PGO == 'true'
+        shell: bash
+        run: test -s "$PROFILE"
+
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
@@ -87,42 +109,64 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .cache/cpm
-          key: cpm-renhdrum-windows-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
+          key: cpm-renhdrum-${{ env.PLATFORM }}-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
           restore-keys: |
+            cpm-renhdrum-${{ env.PLATFORM }}-
             cpm-renhdrum-windows-
-            cpm-windows-x86_64-v2-
+            cpm-${{ env.PLATFORM }}-v2-
 
       - name: Restore compiler objects
         uses: actions/cache@v5
         with:
           path: .sccache
-          key: objects-renhdrum-windows-${{ github.sha }}
+          # The profile's hash is in the key, so objects built against another profile never return
+          key: objects-renhdrum-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-${{ github.sha }}
           restore-keys: |
-            objects-renhdrum-windows-
-            objects-windows-x86_64-v2-
+            objects-renhdrum-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-
 
       # SDL3 is built from source with .patch/sdl3 (HD Rumble entry points) and linked statically:
       # externals/CMakeLists.txt forces that, whatever YUZU_USE_BUNDLED_SDL3 says.
       - name: Configure
         shell: bash
-        run: >-
-          cmake -S . -B build/release -G Ninja
-          -DCMAKE_BUILD_TYPE=Release
-          -DBUILD_TESTING=OFF
-          -DYUZU_TESTS=OFF
-          -DYUZU_CMD=ON
-          -DYUZU_ROOM=OFF
-          -DYUZU_ROOM_STANDALONE=OFF
-          -DYUZU_USE_BUNDLED_QT=OFF
-          -DENABLE_UPDATE_CHECKER=OFF
-          -DLICHII_BUILD_TAG=renhdrum-${{ github.run_number }}
-          -DLICHII_BUILD_PLATFORM=windows-x86_64
-          -DUSE_DISCORD_PRESENCE=OFF
-          -DRENHDRUM_DIR="${GITHUB_WORKSPACE//\\//}/_renhdrum"
-          -DLibUSB_LIBRARY="${GITHUB_WORKSPACE//\\//}/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
-          -DLibUSB_INCLUDE_PATH="${GITHUB_WORKSPACE//\\//}/_libusb/include"
-          -DCMAKE_C_COMPILER_LAUNCHER=sccache
-          -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+        run: |
+          set -euo pipefail
+          ws="${GITHUB_WORKSPACE//\\//}"
+          args=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DBUILD_TESTING=OFF
+            -DYUZU_TESTS=OFF
+            -DYUZU_CMD=ON
+            -DYUZU_ROOM=OFF
+            -DYUZU_ROOM_STANDALONE=OFF
+            -DYUZU_USE_BUNDLED_QT=OFF
+            -DENABLE_UPDATE_CHECKER=OFF
+            -DLICHII_BUILD_TAG=renhdrum-${{ github.run_number }}
+            "-DLICHII_BUILD_PLATFORM=$PLATFORM"
+            -DUSE_DISCORD_PRESENCE=OFF
+            "-DRENHDRUM_DIR=$ws/_renhdrum"
+            "-DLibUSB_LIBRARY=$ws/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
+            "-DLibUSB_INCLUDE_PATH=$ws/_libusb/include"
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          )
+          if [ "$PGO" = true ]; then
+            # Same compiler and flags as Lichii's windows-x86_64-pgo release. A profile older than
+            # the source only warns: functions changed since training (ours included) lose their
+            # profile data and are optimized as in a plain ThinLTO build.
+            flags="-DWIN32 -D_WINDOWS -DNOMINMAX -flto=thin"
+            flags+=" -fprofile-use=$(cygpath -m "$PWD/$PROFILE")"
+            flags+=" -Wno-error=profile-instr-out-of-date -Wno-error=profile-instr-unprofiled"
+            flags+=" -Wno-error=backend-plugin"
+            args+=(
+              "-DCMAKE_C_COMPILER=$LLVM_ROOT/bin/clang-cl.exe"
+              "-DCMAKE_CXX_COMPILER=$LLVM_ROOT/bin/clang-cl.exe"
+              "-DCMAKE_LINKER=$LLVM_ROOT/bin/lld-link.exe"
+              "-DCMAKE_AR=$LLVM_ROOT/bin/llvm-lib.exe"
+              "-DCMAKE_C_FLAGS=$flags"
+              "-DCMAKE_CXX_FLAGS=-EHsc $flags"
+            )
+          fi
+          cmake -S . -B build/release -G Ninja "${args[@]}"
 
       # Fails early if SDL did not pick libusb up (no Switch 2 controller driver)
       - name: Check SDL has libusb
@@ -165,13 +209,13 @@ jobs:
             "the GNU Lesser General Public License 2.1 or later. Source code: " +
             "https://github.com/libusb/libusb/releases/tag/v1.0.30")
           Get-ChildItem build/release/bin -Exclude *.pdb, *.ilk, *.lib, *.exp |
-            Compress-Archive -DestinationPath lichii-renhdrum-windows-x86_64.zip
+            Compress-Archive -DestinationPath "lichii-renhdrum-$env:PLATFORM.zip"
 
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-renhdrum-windows-x86_64-${{ github.sha }}
-          path: lichii-renhdrum-windows-x86_64.zip
+          name: lichii-renhdrum-${{ env.PLATFORM }}-${{ github.sha }}
+          path: lichii-renhdrum-${{ env.PLATFORM }}.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
