@@ -259,7 +259,7 @@
         "version": "v6.8.0"
     },
     "sdl3": {
-        "hash": "df5a323af7ac366661a3c0e887969c72584d232f3cc211419d59b0487b620b6b2859d4549c9e8df002ee489290062e466fcfddf7edc0872a37b1f2845e81c0f3",
+        "hash": "6e6f91cde7dffec527af8a9b0162e9fb7997ec2b6770d3002c662cd75e5cd01afd2fb5f5cadfa2496c86e67ed22e876d99ebdf60b9ea7431a3a3caf5686d0f8f",
         "min_version": "3.2.10",
         "package": "SDL3",
         "patches": [
@@ -270,7 +270,7 @@
             "0005-switch2-hd-rumble-effect.patch"
         ],
         "repo": "libsdl-org/SDL",
-        "version": "release-3.4.8"
+        "version": "release-3.4.14"
     },
     "sdl3-ci": {
         "ci": true,

@@ -67,7 +67,7 @@ index bcd4a79..226eaa9 100644
 +
  #endif // SDL_JOYSTICK_HIDAPI
 diff --git a/src/joystick/hidapi/SDL_hidapi_switch.c b/src/joystick/hidapi/SDL_hidapi_switch.c
-index 944eaed..237f598 100644
+index a08687c..d1a5124 100644
 --- a/src/joystick/hidapi/SDL_hidapi_switch.c
 +++ b/src/joystick/hidapi/SDL_hidapi_switch.c
 @@ -282,6 +282,19 @@ typedef enum
@@ -401,10 +401,10 @@ index 944eaed..237f598 100644
  
      SDL_RemoveHintCallback(SDL_HINT_JOYSTICK_ENHANCED_REPORTS,
 diff --git a/src/joystick/hidapi/SDL_hidapijoystick.c b/src/joystick/hidapi/SDL_hidapijoystick.c
-index 7629b1a..e4be4d0 100644
+index 9315f4d..f2325d0 100644
 --- a/src/joystick/hidapi/SDL_hidapijoystick.c
 +++ b/src/joystick/hidapi/SDL_hidapijoystick.c
-@@ -1754,6 +1754,70 @@ static bool HIDAPI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMappin
+@@ -1777,6 +1777,70 @@ static bool HIDAPI_JoystickGetGamepadMapping(int device_index, SDL_GamepadMappin
      return false;
  }
  

@@ -1,8 +1,8 @@
 diff --git a/src/joystick/hidapi/SDL_hidapi_steamdeck.c b/src/joystick/hidapi/SDL_hidapi_steamdeck.c
-index 018ce00..6efd61b 100644
+index 8bfb64d..dce3294 100644
 --- a/src/joystick/hidapi/SDL_hidapi_steamdeck.c
 +++ b/src/joystick/hidapi/SDL_hidapi_steamdeck.c
-@@ -421,7 +421,22 @@ static bool HIDAPI_DriverSteamDeck_SetJoystickLED(SDL_HIDAPI_Device *device, SDL
+@@ -462,7 +462,22 @@ static bool HIDAPI_DriverSteamDeck_SetJoystickLED(SDL_HIDAPI_Device *device, SDL
  
  static bool HIDAPI_DriverSteamDeck_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
  {

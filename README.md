@@ -62,7 +62,7 @@ Changes apply right away. To turn HD Rumble off entirely, create an empty file n
 
 ### Changes compared to Lichii
 
-- **RenHDrum integration:** port of RenHDrum's `integrations/brontide-ns2` patches to Lichii (the Switch 2 command 214 was already in Lichii). SDL3 is built from source with RenHDrum's patches and linked statically, because the prebuilt SDL3 lacks the HD Rumble functions.
+- **RenHDrum integration:** port of RenHDrum's `integrations/brontide-ns2` patches to Lichii (the Switch 2 command 214 was already in Lichii). SDL3 is built from source (3.4.14, the same version as Lichii's official builds) with RenHDrum's patches and linked statically, because the prebuilt SDL3 lacks the HD Rumble functions.
 - **Steam Controller (2026):** HD rumble on all four motors, with an SDL patch that lets the controller's haptic commands through.
 - **Steam Deck and Steam Controller (2015):** HD rumble as one tone per side on their trackpad actuators, with an SDL patch for the Deck's haptic commands.
 - **Switch 2 Pro Controller:** SDL drove it with two fixed frequencies and the same rumble on both motors; an SDL patch now lets Lichii send each motor both bands at the game's frequencies.
@@ -137,7 +137,7 @@ Los cambios se aplican al momento. Para desactivar el HD Rumble del todo, crea u
 
 ### Cambios respecto a Lichii
 
-- **Integración de RenHDrum:** port de los parches `integrations/brontide-ns2` de RenHDrum a Lichii (el comando 214 de Switch 2 ya estaba en Lichii). SDL3 se compila desde el código fuente con los parches de RenHDrum y se enlaza en estático, porque la versión precompilada no tiene las funciones de HD Rumble.
+- **Integración de RenHDrum:** port de los parches `integrations/brontide-ns2` de RenHDrum a Lichii (el comando 214 de Switch 2 ya estaba en Lichii). SDL3 se compila desde el código fuente (3.4.14, la misma versión que las builds oficiales de Lichii) con los parches de RenHDrum y se enlaza en estático, porque la versión precompilada no tiene las funciones de HD Rumble.
 - **Steam Controller (2026):** vibración HD en los cuatro motores. Incluye un parche de SDL que deja pasar al mando sus comandos de vibración.
 - **Steam Deck y Steam Controller (2015):** vibración HD como un tono por lado en los actuadores de los trackpads, con un parche de SDL para los comandos hápticos de la Deck.
 - **Switch 2 Pro Controller:** SDL lo movía con dos frecuencias fijas y la misma vibración en los dos motores; un parche de SDL permite ahora que Lichii mande a cada motor las dos bandas con las frecuencias del juego.
