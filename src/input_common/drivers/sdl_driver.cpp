@@ -1470,7 +1470,7 @@ private:
     }
 
     static void DualSenseAudioCallback(void* userdata, SDL_AudioStream* stream, int additional_amount,
-                                       int total_amount) {
+                                       [[maybe_unused]] int total_amount) {
         if (additional_amount <= 0 || !userdata) {
             return;
         }

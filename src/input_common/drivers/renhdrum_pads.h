@@ -15,7 +15,7 @@ struct RenHDrumPadInfo {
     bool is_bluetooth;
     std::string mode;
     bool is_vibrating{false};
-    std::string guid;
+    std::string guid{};
     int port{0};
 };
 
