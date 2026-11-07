@@ -182,7 +182,15 @@ if (NOT YUZU_USE_BUNDLED_SDL3)
         set(SDL_FILE ON)
     endif()
 
+    # SDL finds libusb (its Switch 2 controller driver needs it) with find_package(LibUSB) and its
+    # own FindLibUSB.cmake. On case-insensitive file systems (Windows, macOS) CMake would pick
+    # Lichii's CMakeModules/find/Findlibusb.cmake first, which only asks pkg-config and sets
+    # libusb_FOUND, so SDL never saw libusb there. SDL gets the module path without that folder.
+    set(_lichii_module_path "${CMAKE_MODULE_PATH}")
+    list(FILTER CMAKE_MODULE_PATH EXCLUDE REGEX "/CMakeModules/find/?$")
     AddJsonPackage(sdl3)
+    set(CMAKE_MODULE_PATH "${_lichii_module_path}")
+    unset(_lichii_module_path)
 else()
     message(STATUS "Using bundled SDL3")
     AddJsonPackage(sdl3-ci)
