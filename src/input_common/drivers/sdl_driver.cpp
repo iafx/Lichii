@@ -1163,9 +1163,9 @@ private:
         bool ok = true;
         switch (kind) {
         case ValvePad::Triton: {
-            // Tone side codes: 0x01 is the right trackpad, 0x02 the left one (checked on the
-            // controller, motor by motor; the grips report has left first, then right)
-            const u8 side_id = is_right ? 0x01 : 0x02;
+            // Tone side codes, checked on the controller motor by motor: 0x00 left trackpad,
+            // 0x01 right trackpad, 0x02 both trackpads, 0x03 / 0x04 left / right grip
+            const u8 side_id = is_right ? 0x01 : 0x00;
             if (!tone) {
                 const std::array<u8, 4> off{STEAM_REPORT_COMMAND, side_id, 0 /* off */, 0};
                 ok = SDL_SendJoystickEffect(joystick, off.data(), static_cast<int>(off.size()));
