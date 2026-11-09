@@ -708,6 +708,7 @@ public:
         if (Switch2Vibrate(now_us, is_right, v)) {
             return true;
         }
+        SyncNx2Mode();
         {
             std::scoped_lock lock{renhdrum_mutex};
             if (!renhdrum_engine) {
@@ -724,6 +725,18 @@ public:
         }
         TickRenHDrum(now_us);
         return true;
+    }
+
+    // RenHDrum 0.3.0 has its own presets for Switch 2 games on the DualSense and the Pro Controller
+    // (renhdrum_set_nx2_mode(2)); Switch 1 games (mode 0) play exactly as before. The mode is global
+    // in RenHDrum, so it is passed on only when the game's changes.
+    static void SyncNx2Mode() {
+        static std::atomic<int> applied{-1};
+        const int mode = Common::Input::nx2_vibration_mode.load(std::memory_order_relaxed);
+        if (applied.exchange(mode, std::memory_order_relaxed) != mode) {
+            renhdrum_set_nx2_mode(mode);
+            LOG_INFO(Input, "RenHDrum: {} rumble presets", mode == 2 ? "Switch 2" : "Switch 1");
+        }
     }
 
     void MaintainDualSenseAudio(int64_t now_us) {
@@ -1265,14 +1278,14 @@ private:
         return std::clamp<long>(Settings::values.steam_trackpad_gain_db.GetValue(), -20, 6);
     }
 
-    // Ryuhdr's recommended mode for a configured pad (0.2.6): wired 15 ms + cards 1 / 3 / 5 / 7 / 8, Bluetooth level 3 +
-    // B1 / B3 / B2. Flag files next to eden.exe still win (renhdrum_settings_resolve). Then the SDL modes are switched on; a mode
+    // RenHDrum 0.3.0's defaults for a configured pad: wired 15 ms + cards 1 / 3 / 5 / 7 / 8, Bluetooth level 2
+    // (Balanced: 45 ms, burst 3) + B1 / B2, B3 (bt_fast) off. Flag files next to eden.exe still win (renhdrum_settings_resolve). Then the SDL modes are switched on; a mode
     // SDL refused is cleared, so the engine never paces for writes that SDL does not gate (Ryuhdr: _noQueueActive / _btFastActive).
     void ApplyRenHDrumSettings(bool is_bluetooth) {
         RenHdcConfig config{};
         config.enable_hd_rumble = true;
         config.hd_rumble_usb_interval_ms = 15;
-        config.hd_rumble_bluetooth_level = 3;
+        config.hd_rumble_bluetooth_level = 2;
         config.hd_rumble_usb_auto_slow = true;
         config.hd_rumble_experimental_usb_no_queue = true;
         config.hd_rumble_experimental_envelope_5ms = true;
@@ -1280,7 +1293,7 @@ private:
         config.hd_rumble_experimental_frequency_both_bands = true;
         config.hd_rumble_experimental_crisp_notes = true;
         config.hd_rumble_experimental_bt_after_input = true;
-        config.hd_rumble_experimental_bt_fast = true;
+        config.hd_rumble_experimental_bt_fast = false;
         config.hd_rumble_experimental_bt_crisp_notes = true;
 
         RenHdcSettings settings{};

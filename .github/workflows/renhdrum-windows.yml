@@ -1,6 +1,6 @@
 name: lichii-renhdrum-windows
 
-# Lichii (nx2) + RenHDrum v0.2.1 HD Rumble / DualSense haptics, Windows x64.
+# Lichii (nx2) + RenHDrum v0.3.0 HD Rumble / DualSense haptics, Windows x64.
 # Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
 # By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
 # and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
@@ -9,7 +9,7 @@ on:
     inputs:
       renhdrum_ref:
         description: RenHDrum tag or commit to build
-        default: v0.2.1
+        default: v0.3.0
       pgo:
         description: PGO build (clang-cl, ThinLTO, lichii-windows.profdata)
         type: boolean
@@ -28,7 +28,7 @@ jobs:
     env:
       SCCACHE_DIR: ${{ github.workspace }}/.sccache
       SCCACHE_CACHE_SIZE: 3G
-      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.2.1' }}
+      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.3.0' }}
       PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
       PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }}
       PROFILE: lichii-windows.profdata

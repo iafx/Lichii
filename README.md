@@ -27,7 +27,7 @@ Visit the [Lichii game compatibility website](https://lichii.zortos.me) to find 
 
 **English** · [Español](#este-fork-lichii--renhdrum-hd-rumble)
 
-This fork adds [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/tag/v0.2.1) HD Rumble to Lichii, plus HD rumble for the Steam Controller (2026) and several fixes. Everything lives on the **`renhdrum`** branch, on top of `nx2`.
+This fork adds [RenHDrum v0.3.0](https://github.com/trzz1214/RenHDrum/releases/tag/v0.3.0) HD Rumble to Lichii, plus HD rumble for the Steam Controller (2026) and several fixes. Everything lives on the **`renhdrum`** branch, on top of `nx2`.
 
 ### Downloads
 
@@ -82,7 +82,7 @@ Experimental. Support for Valve's controllers is based on SDL's public protocol 
 
 ```
 git clone --branch renhdrum https://github.com/<your-user>/Lichii.git
-git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
+git clone --branch v0.3.0 https://github.com/trzz1214/RenHDrum.git
 (cd RenHDrum && cargo build --release)
 cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
 cmake --build build
@@ -102,7 +102,7 @@ cmake --build build
 
 [English](#this-fork-lichii--renhdrum-hd-rumble) · **Español**
 
-Este fork añade a Lichii la vibración HD de [RenHDrum v0.2.1](https://github.com/trzz1214/RenHDrum/releases/tag/v0.2.1), más soporte de vibración HD para el Steam Controller (2026) y varias correcciones. Todo está en la rama **`renhdrum`**, encima de `nx2`.
+Este fork añade a Lichii la vibración HD de [RenHDrum v0.3.0](https://github.com/trzz1214/RenHDrum/releases/tag/v0.3.0), más soporte de vibración HD para el Steam Controller (2026) y varias correcciones. Todo está en la rama **`renhdrum`**, encima de `nx2`.
 
 ### Descargas
 
@@ -157,7 +157,7 @@ Experimental. El soporte de los mandos de Valve se basa en el protocolo público
 
 ```
 git clone --branch renhdrum https://github.com/<tu-usuario>/Lichii.git
-git clone --branch v0.2.1 https://github.com/trzz1214/RenHDrum.git
+git clone --branch v0.3.0 https://github.com/trzz1214/RenHDrum.git
 (cd RenHDrum && cargo build --release)
 cmake -S Lichii -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRENHDRUM_DIR=$PWD/RenHDrum
 cmake --build build

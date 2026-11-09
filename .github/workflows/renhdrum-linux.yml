@@ -1,6 +1,6 @@
 name: lichii-renhdrum-linux
 
-# Lichii (nx2) + RenHDrum v0.2.1 HD Rumble, Linux x86_64: AppImage (self-contained, glibc 2.39+:
+# Lichii (nx2) + RenHDrum v0.3.0 HD Rumble, Linux x86_64: AppImage (self-contained, glibc 2.39+:
 # SteamOS 3.6+, Ubuntu 24.04, Fedora 40, Arch) and a tar.gz (needs Qt 6 installed).
 # Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
 # By default it is the PGO build, as Lichii's linux-x86_64-pgo release: clang from apt.llvm.org
@@ -10,7 +10,7 @@ on:
     inputs:
       renhdrum_ref:
         description: RenHDrum tag or commit to build
-        default: v0.2.1
+        default: v0.3.0
       pgo:
         description: PGO build (clang, eglantine.profdata)
         type: boolean
@@ -27,7 +27,7 @@ jobs:
     name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'linux-x86_64-pgo' || 'linux-x86_64' }} + RenHDrum
     runs-on: ubuntu-24.04
     env:
-      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.2.1' }}
+      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.3.0' }}
       PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
       PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'linux-x86_64-pgo' || 'linux-x86_64' }}
       PROFILE: eglantine.profdata
