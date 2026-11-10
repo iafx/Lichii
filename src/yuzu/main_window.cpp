@@ -11,7 +11,6 @@
 #include <QSysInfo>
 #include <boost/algorithm/string/split.hpp>
 #include "common/fs/path_util.h"
-#include "common/game_presets.h"
 #include "common/settings.h"
 #include "common/settings_enums.h"
 #include "frontend_common/settings_generator.h"
@@ -387,24 +386,6 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     filter.ParseFilterString(Settings::values.log_filter.GetValue());
     Common::Log::SetGlobalFilter(filter);
 
-    if (user_data_migrator.migrated) {
-        // Sort-of hack whereby we only move the old dir if it's a subfolder of the user dir
-
-        using namespace Common::FS;
-
-        static constexpr const std::array<const EdenPath, 4> paths = {
-            EdenPath::NANDDir, EdenPath::SDMCDir, EdenPath::DumpDir, EdenPath::LoadDir};
-
-        for (const EdenPath& path : paths) {
-            std::string str_path = Common::FS::GetEdenPathString(path);
-            if (str_path.starts_with(user_data_migrator.selected_emu.get_user_dir())) {
-                boost::replace_all(
-                    str_path, user_data_migrator.selected_emu.lower_name().toStdString(), "eden");
-                Common::FS::SetEdenPath(path, str_path);
-            }
-        }
-    }
-
 #ifdef __unix__
     SetupSigInterrupts();
 #endif
@@ -565,9 +546,6 @@ MainWindow::MainWindow(bool has_broken_vulkan)
                 LibraryAppletParameters(0x010000000000100Dull, Service::AM::AppletId::QLaunch));
         }
     }
-
-    // Once the window is up and no game was started with it; else when that game stops.
-    QTimer::singleShot(0, this, &MainWindow::OfferRecommendedSettings);
 }
 
 MainWindow::~MainWindow() {
@@ -991,13 +969,17 @@ void MainWindow::InitializeWidgets() {
     game_fps_label = new QLabel();
     game_fps_label->setToolTip(tr("How many frames per second the game is currently displaying. "
                                   "This will vary from game to game and scene to scene."));
+    dlss_status_label = new QLabel();
+    dlss_status_label->setToolTip(
+        tr("NVIDIA DLSS is upscaling the game, in the mode shown. The window adapting filter "
+           "runs after it."));
     emu_frametime_label = new QLabel();
     emu_frametime_label->setToolTip(
         tr("Time taken to emulate a Switch frame, not counting framelimiting or v-sync. For "
            "full-speed emulation this should be at most 16.67 ms."));
 
     for (auto& label : {shader_building_label, res_scale_label, emu_speed_label, game_fps_label,
-                        emu_frametime_label}) {
+                        dlss_status_label, emu_frametime_label}) {
         label->setVisible(false);
         label->setFrameStyle(QFrame::NoFrame);
         label->setContentsMargins(4, 0, 4, 0);
@@ -2123,26 +2105,6 @@ void MainWindow::BootGame(const QString& filename, Service::AM::FrontendAppletPa
         QtCommon::system->ApplySettings();
     }
 
-    if (title_id == Settings::MarioKartWorldProgramId && !asked_recommended_mkw_settings) {
-        asked_recommended_mkw_settings = true;
-        use_recommended_mkw_settings =
-            QMessageBox::question(
-                this, tr("Recommended Mario Kart World settings"),
-                tr("Use the recommended settings for Mario Kart World?\n\n"
-                   "Vulkan, 1x resolution, GPU Fast, asynchronous shaders, BC3, conservative VRAM, "
-                   "reactive flushing off, FIFO Relaxed VSync, handheld mode, ScaleForce, and "
-                   "FXAA.\n\n"
-                   "They apply to Mario Kart World until Lichii is closed. Your saved settings "
-                   "are not changed."),
-                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
-        LOG_INFO(Config, "MKW recommended settings accepted: {}", use_recommended_mkw_settings);
-    }
-    if (Settings::ApplyMarioKartWorldPreset(Settings::values, title_id,
-                                          use_recommended_mkw_settings)) {
-        QtCommon::system->ApplySettings();
-        Settings::UpdateGPUAccuracy();
-        LOG_INFO(Config, "Applied recommended MKW settings after per-game configuration");
-    }
     PrepareShaderPrecache(title_id, std::filesystem::path{filename.toStdU16String()});
     Settings::LogSettings();
 
@@ -2553,6 +2515,7 @@ void MainWindow::OnEmulationStopped() {
     res_scale_label->setVisible(false);
     emu_speed_label->setVisible(false);
     game_fps_label->setVisible(false);
+    dlss_status_label->setVisible(false);
     emu_frametime_label->setVisible(false);
     renderer_status_button->setEnabled(!UISettings::values.has_broken_vulkan);
     frame_gen_status_button->setEnabled(true);
@@ -2579,7 +2542,6 @@ void MainWindow::OnEmulationStopped() {
     } else if (!boot_in_progress) {
         game_list->SetScanEnabled(true);
         game_list->PopulateAsync(UISettings::values.game_dirs);
-        QTimer::singleShot(0, this, &MainWindow::OfferRecommendedSettings);
     }
 }
 
@@ -4288,26 +4250,12 @@ void MainWindow::OnEdenDependencies() {
     depsDialog.exec();
 }
 
-void MainWindow::OfferRecommendedSettings() {
-    if (emulation_running || boot_in_progress || close_pending ||
-        Settings::values.recommended_settings_prompt_shown.GetValue()) {
-        return;
-    }
-    OnApplyRecommendedSettings();
-}
-
 void MainWindow::OnApplyRecommendedSettings() {
     if (emulation_running) {
         return;
     }
-    const bool accepted = RecommendedSettingsDialog::Ask(this);
-    if (emulation_running) {
-        // A game started behind the question; ask again when none runs.
-        return;
-    }
-    Settings::values.recommended_settings_prompt_shown = true;
-    if (!accepted) {
-        OnSaveConfig();
+    // A game can start behind the question; leave its settings alone then.
+    if (!RecommendedSettingsDialog::Ask(this) || emulation_running) {
         return;
     }
     const auto changes = Settings::ApplyRecommendedSettings(Settings::values);
@@ -4399,7 +4347,8 @@ void MainWindow::OnGameListConvertToNup(const std::string& game_path) {
     if (nup_running)
         return;
 
-    const auto root = FileSys::Nup::DumpRootFromMain(game_path);
+    const auto root =
+        FileSys::Nup::DumpRootFromMain(std::filesystem::path{Common::FS::ToU8String(game_path)});
     if (!root)
         return;
     const QString convert_title = tr("Convert to NUP");
@@ -5156,6 +5105,31 @@ void MainWindow::UpdateStatusBar() {
     frame_gen_generating = frame_gen.generated_frames > frame_gen_frames;
     frame_gen_frames = frame_gen.generated_frames;
     frame_gen_state = frame_gen.state;
+
+    const auto dlss = QtCommon::system->GPU().Renderer().GetDlssStatus();
+    dlss_status_text.clear();
+    if (dlss.evaluations > dlss_evaluations) {
+        const auto mode_text = [this](Settings::NvidiaDlssQuality mode) {
+            return ConfigurationShared::TranslateMapText(
+                       translator, ConfigurationShared::nvidia_dlss_quality_texts_map.at(mode))
+                .toUpper();
+        };
+        dlss_status_text =
+            tr("DLSS %1 %2", "NVIDIA DLSS mode and model preset, e.g. DLSS DLAA M")
+                .arg(mode_text(dlss.mode),
+                     ConfigurationShared::TranslateMapText(
+                         translator,
+                         ConfigurationShared::nvidia_dlss_preset_texts_map.at(dlss.preset))
+                         .toUpper());
+        if (dlss.requested != Settings::NvidiaDlssQuality::Automatic &&
+            dlss.requested != dlss.mode) {
+            dlss_status_text += tr(" (%1 DOESN'T FIT)", "The DLSS mode the user chose")
+                                    .arg(mode_text(dlss.requested));
+        }
+    }
+    dlss_evaluations = dlss.evaluations;
+    dlss_status_label->setText(dlss_status_text);
+    dlss_status_label->setVisible(!dlss_status_text.isEmpty());
 
     emit statsUpdated(results, shader_notify);
 
