@@ -315,6 +315,11 @@ VkResult MemoryAllocator::AllocateImage(const VkImageCreateInfo &ci, bool dedica
     if (result != VK_SUCCESS) {
         failed_images.fetch_add(1, std::memory_order_relaxed);
         static u32 failed_logged{};
+        if (failed_logged == 0) {
+            // What ran out: the device's heaps or the host's commit. Before the error line,
+            // which is the one that reaches the log file when the session ends here.
+            LogMemoryTrace(device);
+        }
         if (failed_logged++ < 32) {
             LOG_ERROR(Render_Vulkan, "Image {}x{}x{} ({} levels, {} layers, format {}) failed: {}",
                       ci.extent.width, ci.extent.height, ci.extent.depth, ci.mipLevels,
@@ -458,7 +463,32 @@ vk::Buffer MemoryAllocator::CreateBuffer(const VkBufferCreateInfo &ci, MemoryUsa
     VkMemoryPropertyFlags property_flags{};
 
     if (!CreateBufferInSeparatePool(ci, usage, alloc_ci, handle, allocation, alloc_info)) {
-        vk::Check(vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info));
+        VkResult result =
+            vmaCreateBuffer(allocator, &ci, &alloc_ci, &handle, &allocation, &alloc_info);
+        if (result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+            // Over the device memory budget, as images are in CreateImage: buffers have no
+            // unbacked fallback, and the vk::Exception a failed staging or buffer cache
+            // allocation throws from the GPU thread aborts the process. Phones share RAM with
+            // the GPU, so the budget is often lower than the memory that is really free.
+            static u32 logged{};
+            if (logged++ < 32) {
+                LOG_WARNING(Render_Vulkan,
+                            "Buffer of {} bytes (usage {}) is over the memory budget; "
+                            "allocating it anyway",
+                            ci.size, static_cast<u32>(usage));
+            }
+            // The texture cache answers each pressure event by keeping more device memory free.
+            // Upload and download buffers live in host memory on a discrete GPU, so they only
+            // count when the heaps are shared or the buffer asked for device-local memory.
+            if (device.IsIntegrated() || usage == MemoryUsage::DeviceLocal ||
+                usage == MemoryUsage::Stream) {
+                pressure_events.fetch_add(1, std::memory_order_relaxed);
+            }
+            VmaAllocationCreateInfo relaxed = alloc_ci;
+            relaxed.flags &= ~VMA_ALLOCATION_CREATE_WITHIN_BUDGET_BIT;
+            result = vmaCreateBuffer(allocator, &ci, &relaxed, &handle, &allocation, &alloc_info);
+        }
+        vk::Check(result);
     }
     vmaGetAllocationMemoryProperties(allocator, allocation, &property_flags);
 
