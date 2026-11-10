@@ -1349,6 +1349,44 @@ private:
         return static_cast<u8>(~(sign | (exponent << 4) | mantissa));
     }
 
+    // The game's two bands of one side, shaped exactly like RenHDrum shapes them for the DualSense
+    // (dualsense/haptics.rs + encoding/crisp_notes.rs), so a calibration made against a DualSense
+    // ("same digital level feels the same") also holds for what each pad gets in a game:
+    //  - crisp notes: x1.41 for the first ~10.7 ms of a note, x0.71 until ~42.7 ms, then x1
+    //    (RenHDrum counts 5.33 ms audio buffers: 2 accent, 6 dip), capped like RenHDrum caps it;
+    //  - response curve amp^0.5 per band, then the two bands scaled to sum at most 1;
+    //  - output ceiling 0.8 (RenHDrum's default volume, 100 %).
+    static std::array<f32, 2> DualSenseLevels(f32 low, f32 high, int64_t& onset_us, int64_t now_us) {
+        static constexpr f32 SILENT = 1.0f / 65535.0f;
+        if (low < SILENT && high < SILENT) {
+            onset_us = -1;
+            return {0.0f, 0.0f};
+        }
+        if (onset_us < 0) {
+            onset_us = now_us;
+        }
+        const int64_t since = now_us - onset_us;
+        const f32 gain = since < 10'667 ? 1.41f : since < 42'667 ? 0.71f : 1.0f;
+        f32 l = (std::min)(1.0f, low * gain);
+        f32 h = (std::min)(1.0f, high * gain);
+        if (gain > 1.0f) {
+            const f32 limit = (std::max)(1.0f, low + high);
+            if (l + h > limit) {
+                const f32 scale = limit / (l + h);
+                l *= scale;
+                h *= scale;
+            }
+        }
+        l = std::sqrt(l);
+        h = std::sqrt(h);
+        if (l + h > 1.0f) {
+            const f32 scale = 1.0f / (l + h);
+            l *= scale;
+            h *= scale;
+        }
+        return {0.8f * l, 0.8f * h};
+    }
+
     // Runs on grip_thread. Never takes renhdrum_mutex: CleanupRenHDrum joins it (holding that
     // mutex) before the HID handle is closed. The game's vibration reaches us only when it changes,
     // so the last one keeps playing for up to SWITCH2_STALE_US, then fades out (a paused or stalled
@@ -1362,6 +1400,7 @@ private:
         constexpr f32 two_pi = 2.0f * std::numbers::pi_v<f32>;
         std::array<std::array<f32, 2>, 2> amp{};   // [grip][band]
         std::array<std::array<f32, 2>, 2> phase{};
+        std::array<int64_t, 2> onset_us{-1, -1};   // per grip: when the current note started
         std::array<u8, 64> report{};
         std::array<std::array<int, 31>, 2> pcm{};
         Uint64 next = SDL_GetTicksNS();
@@ -1378,21 +1417,26 @@ private:
             const bool fresh = t.last_game_us != 0 && now_us - t.last_game_us < SWITCH2_STALE_US;
             for (size_t g = 0; g < 2; ++g) {
                 const std::array<GripBand, 2> bands{t.low[g], t.high[g]};
+                const std::array<f32, 2> level =
+                    DualSenseLevels(fresh ? std::clamp(bands[0].amplitude, 0.0f, 1.0f) : 0.0f,
+                                    fresh ? std::clamp(bands[1].amplitude, 0.0f, 1.0f) : 0.0f,
+                                    onset_us[g], now_us);
+                // calibracion_agarres.txt: what the grip needs at each frequency to feel like the
+                // DualSense getting the same level
                 const std::array<f32, 2> gain{CalibrationGain(grip_calibration, bands[0].frequency),
                                               CalibrationGain(grip_calibration, bands[1].frequency)};
                 for (int i = 0; i < n; ++i) {
                     f32 v = 0.0f;
                     for (size_t b = 0; b < 2; ++b) {
-                        const f32 target =
-                            fresh ? std::clamp(bands[b].amplitude, 0.0f, 1.0f) * gain[b] : 0.0f;
+                        const f32 target = level[b] * gain[b];
                         amp[g][b] += (target - amp[g][b]) * glide;
                         const f32 step = two_pi * bands[b].frequency / static_cast<f32>(rate);
                         phase[g][b] = std::fmod(phase[g][b] + step, two_pi);
                         v += amp[g][b] * std::sin(phase[g][b]);
                     }
-                    // Both bands share one motor: a soft limit instead of a hard clip
-                    v = std::tanh(1.2f * v) / std::tanh(1.2f);
-                    pcm[g][i] = static_cast<int>(std::lround(std::clamp(v, -1.0f, 1.0f) * 0.95f * 32767.0f));
+                    // The bands already sum to at most 0.8 (times the calibration), like on the
+                    // DualSense; a gain above 1 in the calibration can still reach full scale
+                    pcm[g][i] = static_cast<int>(std::lround(std::clamp(v, -1.0f, 1.0f) * 32767.0f));
                 }
             }
             report.fill(0);
