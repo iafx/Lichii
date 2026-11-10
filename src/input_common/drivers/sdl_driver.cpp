@@ -1190,8 +1190,9 @@ private:
     // Formats: 0 = 16-bit 8 kHz (15 samples per side per report), 8/9/11 = mu-law at 8/4/1 kHz
     // (31 samples). Each write waits for the controller to take the report, and the controller plays
     // the samples as they come: over the cable it took ~250 reports a second, not the 533 that 16-bit
-    // needs, so the audio played long and low. Mu-law 8 kHz needs 258 a second: cable and dongle use
-    // it; Bluetooth 4 kHz on Windows and 1 kHz on Linux (what its Bluetooth stack keeps up with).
+    // needs, so the audio played long and low. Mu-law 8 kHz needs 258 a second: the cable uses it;
+    // the dongle, which took ~250, uses 4 kHz (129 a second); Bluetooth 4 kHz on Windows and 1 kHz on
+    // Linux (what LiveHaptics found its Bluetooth stack keeps up with; not measured here yet).
     static constexpr u8 STEAM_REPORT_PCM_MODE = 0x86;
     static constexpr u8 STEAM_REPORT_PCM_DATA = 0x88;
 
@@ -1238,7 +1239,10 @@ private:
 #else
         static constexpr Format BLUETOOTH{11, 1000, 31};
 #endif
-        const Format format = pid == 0x1303 ? BLUETOOTH : Format{8, 8000, 31};
+        // Measured: the cable takes ~500 reports a second, the dongle only ~250 (8 kHz needs 258)
+        const Format format = pid == 0x1302 ? Format{8, 8000, 31}
+                              : pid == 0x1303 ? BLUETOOTH
+                                              : Format{9, 4000, 31};
         grip_format = format.code;
         grip_rate = format.rate;
         grip_per_report = format.per_report;
