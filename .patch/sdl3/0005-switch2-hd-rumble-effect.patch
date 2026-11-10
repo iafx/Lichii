@@ -1,5 +1,5 @@
 diff --git a/src/joystick/hidapi/SDL_hidapi_switch2.c b/src/joystick/hidapi/SDL_hidapi_switch2.c
-index 773405c..01a20ba 100644
+index 773405c..ed23f58 100644
 --- a/src/joystick/hidapi/SDL_hidapi_switch2.c
 +++ b/src/joystick/hidapi/SDL_hidapi_switch2.c
 @@ -108,6 +108,16 @@ typedef struct
@@ -19,14 +19,20 @@ index 773405c..01a20ba 100644
      Switch2_StickCalibration left_stick;
      Switch2_StickCalibration right_stick;
      Uint8 left_trigger_zero;
-@@ -654,9 +664,47 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
+@@ -654,9 +664,54 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
      return SDL_Unsupported();
  }
  
 +#define SWITCH2_HD_RUMBLE_EFFECT_SIZE 21
 +#define SWITCH2_HD_RUMBLE_HOLD_MS     60
-+// A motor block holds three operations, about 15 ms of rumble: one packet per 15 ms at most
-+#define SWITCH2_HD_RUMBLE_INTERVAL    15
++// A motor block holds three operations, about 15 ms of rumble, but the controller plays through
++// them faster than that: one packet every 15 ms (or 10) left it short now and then, and every gap
++// shook the motor at its own resonance, which sounded like noise over the tone. One packet every
++// 8 ms keeps it fed and plays clean (checked by ear and against a DualSense on a Pro Controller).
++#define SWITCH2_HD_RUMBLE_INTERVAL    8
++// Pause of the rumble thread after each HD rumble write: its 10 ms default would hold the packets
++// back to ~11 ms apart
++#define SWITCH2_HD_RUMBLE_PAUSE_MS    1
 +
 +// HD rumble effect: "HDR2", a flags byte (reserved, 0), then for the left and the right motor
 +// (Uint16 little endian each): low band frequency code, low band amplitude (0-1023), high band
@@ -61,6 +67,7 @@ index 773405c..01a20ba 100644
 +        ctx->hd_hi_amp[motor] = (Uint16)SDL_min(m[6] | (m[7] << 8), 0x3FF);
 +    }
 +    ctx->hd_rumble = true;
++    SDL_SetAtomicInt(&device->hd_pause_ms, SWITCH2_HD_RUMBLE_PAUSE_MS);
 +    ctx->hd_rumble_expire = SDL_GetTicks() + SWITCH2_HD_RUMBLE_HOLD_MS;
 +    ctx->rumble_updated = true;
 +    UpdateRumble(ctx);
@@ -68,7 +75,7 @@ index 773405c..01a20ba 100644
  }
  
  static bool HIDAPI_DriverSwitch2_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
-@@ -1037,14 +1085,52 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
+@@ -1037,14 +1092,52 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
      rumble_data[4] = (Uint8)(low_amp >> 8);
  }
  
@@ -124,7 +131,7 @@ index 773405c..01a20ba 100644
  
      if (timestamp < ctx->rumble_timestamp) {
          return true;
-@@ -1077,7 +1163,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1077,7 +1170,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          Uint16 low_amp = (Uint16)((int)ctx->rumble_lo_amp * RUMBLE_MAX / UINT16_MAX);
          Uint16 high_amp = (Uint16)((int)ctx->rumble_hi_amp * RUMBLE_MAX / UINT16_MAX);
          rumble_data[0x01] = 0x50 | (ctx->rumble_seq & 0xf);
@@ -137,7 +144,7 @@ index 773405c..01a20ba 100644
          switch (ctx->device->product_id) {
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_LEFT:
          case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT:
-@@ -1090,20 +1180,36 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+@@ -1090,20 +1187,36 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
          case USB_PRODUCT_NINTENDO_SWITCH2_PRO:
              rumble_data[0] = 0x2;
              SDL_memcpy(&rumble_data[0x11], &rumble_data[0x01], 6);
@@ -176,3 +183,11 @@ index 773405c..01a20ba 100644
      if (SDL_HIDAPI_SendRumbleAndUnlock(ctx->device, rumble_data, sizeof(rumble_data)) != sizeof(rumble_data)) {
          return SDL_SetError("Couldn't send rumble packet");
      }
+@@ -1289,6 +1402,7 @@ static void HIDAPI_DriverSwitch2_CloseJoystick(SDL_HIDAPI_Device *device, SDL_Jo
+     SDL_RemoveHintCallback(SDL_HINT_JOYSTICK_HIDAPI_SWITCH_PLAYER_LED,
+                            SDL_PlayerLEDHintChanged, ctx);
+ 
++    SDL_SetAtomicInt(&device->hd_pause_ms, 0);
+     ctx->joystick = NULL;
+ }
+ 
