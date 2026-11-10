@@ -7,7 +7,7 @@ index 773405c..01a20ba 100644
      bool rumble_updated;
  
 +    // HD rumble from SDL_SendJoystickEffect: per motor (0 = left, 1 = right), two bands with their own
-+    // frequency code (10 bits, 256 per octave, 0x0E1 = 160 Hz) and 10-bit amplitude. Played until
++    // frequency code (10 bits, Hz = 10 * 2^(code / 96)) and 10-bit amplitude. Played until
 +    // hd_rumble_expire (ms), so a game that stops sending goes quiet.
 +    bool hd_rumble;
 +    Uint64 hd_rumble_expire;
@@ -30,8 +30,8 @@ index 773405c..01a20ba 100644
 +
 +// HD rumble effect: "HDR2", a flags byte (reserved, 0), then for the left and the right motor
 +// (Uint16 little endian each): low band frequency code, low band amplitude (0-1023), high band
-+// frequency code, high band amplitude (0-1023). Frequency codes are 10 bits, 256 per octave,
-+// 0x0E1 = 160 Hz. Each effect plays for SWITCH2_HD_RUMBLE_HOLD_MS; send again to keep it going.
++// frequency code, high band amplitude (0-1023). Frequency codes are 10 bits: Hz = 10 * 2^(code / 96)
++// (measured on a Pro Controller). Each effect plays for SWITCH2_HD_RUMBLE_HOLD_MS; send again to keep it going.
 +// It goes out right away (within the rumble interval) instead of waiting for the next input report.
 +static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx);
 +

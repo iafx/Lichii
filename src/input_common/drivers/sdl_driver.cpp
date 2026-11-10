@@ -889,17 +889,19 @@ private:
     }
 
     // Switch 2 Pro Controller / Joy-Con 2: HD rumble 2 takes, per motor, two bands with their own
-    // frequency and amplitude, like Switch 1 games send. Frequency codes are logarithmic, 256 per
-    // octave, 0x0E1 = 160 Hz (from joycon2-dongle by MukiEX, GPL-3.0), and 10 bits wide, as in
-    // Valve's SDL and Linux drivers (values 0-1023), so they cover about 87-1388 Hz: the whole
-    // Switch 1 range (40-1252 Hz) above 87 Hz; lower ones are clamped. Amplitudes are 10 bits
+    // frequency and amplitude, like Switch 1 games send. Frequency codes are 10 bits and
+    // logarithmic: Hz = 10 x 2^(code / 96), 96 codes per octave, measured with a Switch 2 Pro
+    // Controller's own accelerometer (Frizti/Fritchii PR #6: within ~1 % from 20 to 357 Hz, the same
+    // for both motors; nxnative's code 333 = 110 Hz agrees). The whole Switch 1 range (40-1252 Hz)
+    // fits (codes 192-668). Earlier this used 256 codes per octave with 0x0E1 = 160 Hz, which put a
+    // game's 160 Hz at about 51 Hz. Amplitudes are 10 bits
     // and, like on a Switch 2, the game's amplitude goes out at full scale (1.0 = 0x3FF) with no
     // cap or curve of our own; the per-player strength and the HD Rumble boost (both 100 % by
     // default) still apply.
     struct Switch2Motor {
-        u16 lo_freq{0x0E1};
+        u16 lo_freq{384}; // 160 Hz
         u16 lo_amp{0};
-        u16 hi_freq{0x1E1};
+        u16 hi_freq{480}; // 320 Hz
         u16 hi_amp{0};
         bool operator==(const Switch2Motor&) const = default;
     };
@@ -920,8 +922,8 @@ private:
     static constexpr f32 SWITCH2_AMP_FULL_SCALE = 1023.0f;
 
     static u16 Switch2FrequencyCode(f32 hz) {
-        const f32 code = 225.0f + 256.0f * std::log2(std::clamp(hz, 40.0f, 1252.0f) / 160.0f);
-        return static_cast<u16>(std::clamp(std::lround(code), 1L, 1023L));
+        const f32 code = 96.0f * std::log2(std::clamp(hz, 40.0f, 1252.0f) / 10.0f);
+        return static_cast<u16>(std::clamp(std::lround(code), 0L, 1023L));
     }
 
     bool Switch2Vibrate(int64_t now_us, bool is_right, const Common::Input::VibrationStatus& v) {
