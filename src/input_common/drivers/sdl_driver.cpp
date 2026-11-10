@@ -778,6 +778,11 @@ private:
                 }
                 switch2_hd = true;
                 switch2_state = {};
+                switch2_calibration = LoadCalibrationFile("calibracion_switch2.txt");
+                if (!switch2_calibration.empty()) {
+                    LOG_INFO(Input, "Switch 2 HD rumble calibrated against a DualSense ({} points)",
+                             switch2_calibration.size());
+                }
                 LOG_INFO(Input, "Initialized Switch 2 HD rumble for {:04X}:{:04X} (BT: {})", vid, pid,
                          is_bluetooth);
                 PublishPad({pad_name, false, is_bluetooth, "Switch 2 HD rumble", false});
@@ -894,10 +899,10 @@ private:
     // Controller's own accelerometer (Frizti/Fritchii PR #6: within ~1 % from 20 to 357 Hz, the same
     // for both motors; nxnative's code 333 = 110 Hz agrees). The whole Switch 1 range (40-1252 Hz)
     // fits (codes 192-668). Earlier this used 256 codes per octave with 0x0E1 = 160 Hz, which put a
-    // game's 160 Hz at about 51 Hz. Amplitudes are 10 bits
-    // and, like on a Switch 2, the game's amplitude goes out at full scale (1.0 = 0x3FF) with no
-    // cap or curve of our own; the per-player strength and the HD Rumble boost (both 100 % by
-    // default) still apply.
+    // game's 160 Hz at about 51 Hz. Amplitudes are 10 bits; the game's amplitude is shaped the
+    // way RenHDrum shapes it for a DualSense, then calibracion_switch2.txt (if present) sets a gain
+    // per frequency, so the Switch 2 Pro feels like a DualSense (SendSwitch2IfDue). The per-player
+    // strength and the HD Rumble boost (both 100 % by default) still apply.
     struct Switch2Motor {
         u16 lo_freq{384}; // 160 Hz
         u16 lo_amp{0};
@@ -905,7 +910,12 @@ private:
         u16 hi_amp{0};
         bool operator==(const Switch2Motor&) const = default;
     };
+    struct Switch2Band {
+        f32 lo_amp{0}, lo_hz{160}, hi_amp{0}, hi_hz{320};
+    };
     struct Switch2State {
+        std::array<Switch2Band, 2> game{};          // what the game asks for, per motor
+        std::array<int64_t, 2> onset_us{-1, -1};    // per motor: when the current note started
         std::array<Switch2Motor, 2> motor{};
         std::array<Switch2Motor, 2> sent{};
         int64_t last_send_us{0};
@@ -935,13 +945,8 @@ private:
             if (!sdl_joystick) {
                 return true;
             }
-            auto& motor = switch2_state.motor[is_right ? 1 : 0];
-            motor.lo_freq = Switch2FrequencyCode(v.low_frequency);
-            motor.hi_freq = Switch2FrequencyCode(v.high_frequency);
-            motor.lo_amp = static_cast<u16>(
-                std::lround(std::clamp(v.low_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
-            motor.hi_amp = static_cast<u16>(
-                std::lround(std::clamp(v.high_amplitude, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
+            switch2_state.game[is_right ? 1 : 0] = {std::clamp(v.low_amplitude, 0.0f, 1.0f), v.low_frequency,
+                                                     std::clamp(v.high_amplitude, 0.0f, 1.0f), v.high_frequency};
             switch2_state.last_game_us = now_us;
         }
         // false: this SDL does not play the HD rumble effect, so this sample takes plain rumble
@@ -959,6 +964,22 @@ private:
                 return true;
             }
             joystick = sdl_joystick.get();
+            // The game's bands, shaped like RenHDrum shapes them for the DualSense (crisp notes,
+            // amp^0.5, sum <= 1, x0.8), then calibracion_switch2.txt's gain per frequency: so the
+            // Switch 2 Pro feels like a DualSense playing the same game. The shape changes over a
+            // note's first ~43 ms, so this runs on every tick.
+            for (size_t i = 0; i < 2; ++i) {
+                const auto& g = switch2_state.game[i];
+                const auto level = DualSenseLevels(g.lo_amp, g.hi_amp, switch2_state.onset_us[i], now_us);
+                const auto code = [](f32 amp) {
+                    return static_cast<u16>(std::lround(std::clamp(amp, 0.0f, 1.0f) * SWITCH2_AMP_FULL_SCALE));
+                };
+                auto& motor = switch2_state.motor[i];
+                motor.lo_freq = Switch2FrequencyCode(g.lo_hz);
+                motor.hi_freq = Switch2FrequencyCode(g.hi_hz);
+                motor.lo_amp = code(level[0] * CalibrationGain(switch2_calibration, g.lo_hz));
+                motor.hi_amp = code(level[1] * CalibrationGain(switch2_calibration, g.hi_hz));
+            }
             const auto& m = switch2_state.motor;
             const bool changed = m != switch2_state.sent;
             const bool playing = m[0].lo_amp || m[0].hi_amp || m[1].lo_amp || m[1].hi_amp;
@@ -1282,15 +1303,16 @@ private:
     // calibracion_agarres.txt next to the executable (written by calibrar_vibracion.py, matching the
     // grips against a DualSense by feel): lines "Hz = dB", the gain the grips need at each frequency
     // to feel as strong as a DualSense. No file: no change.
-    void LoadGripCalibration() {
-        grip_calibration.clear();
+    // A calibration file next to the executable: "Hz = dB" lines, anything after # ignored
+    static std::vector<std::pair<f32, f32>> LoadCalibrationFile(const char* name) {
+        std::vector<std::pair<f32, f32>> points;
         const char* base = SDL_GetBasePath();
         if (!base) {
-            return;
+            return points;
         }
-        std::FILE* file = std::fopen((std::string(base) + "calibracion_agarres.txt").c_str(), "r");
+        std::FILE* file = std::fopen((std::string(base) + name).c_str(), "r");
         if (!file) {
-            return;
+            return points;
         }
         char line[256];
         while (std::fgets(line, sizeof(line), file)) {
@@ -1299,11 +1321,16 @@ private:
             }
             float hz = 0.0f, db = 0.0f;
             if (std::sscanf(line, " %f = %f", &hz, &db) == 2 && hz > 0.0f) {
-                grip_calibration.emplace_back(hz, db);
+                points.emplace_back(hz, db);
             }
         }
         std::fclose(file);
-        std::sort(grip_calibration.begin(), grip_calibration.end());
+        std::sort(points.begin(), points.end());
+        return points;
+    }
+
+    void LoadGripCalibration() {
+        grip_calibration = LoadCalibrationFile("calibracion_agarres.txt");
         if (!grip_calibration.empty()) {
             LOG_INFO(Input, "Steam Controller grips calibrated against a DualSense ({} points)",
                      grip_calibration.size());
@@ -1937,6 +1964,7 @@ private:
     ValvePad valve_pad{ValvePad::None};
     bool switch2_hd{false};
     Switch2State switch2_state{};
+    std::vector<std::pair<f32, f32>> switch2_calibration; // Hz, dB (calibracion_switch2.txt)
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};
     // Steam Controller (2026) grips as audio: second HID handle + sender thread for report 0x88
