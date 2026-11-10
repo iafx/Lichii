@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -14,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 #include <SDL3/SDL_hidapi.h>
 #include "common/logging.h"
 #include "common/math_util.h"
@@ -1185,9 +1187,11 @@ private:
     // ---- Steam Controller (2026) grips as audio --------------------------------------------------
     // Report 0x86: [id, op (1 off, 2 on), channel, format]; LiveHaptics sends it for channels 2 and 5.
     // Report 0x88: [id, count, left grip samples from byte 2, right grip samples from byte 33].
-    // Formats: 0 = 16-bit 8 kHz (USB cable, 15 samples per side per report), 8/9/11 = mu-law at
-    // 8/4/1 kHz (31 samples): the Steam dongle takes 8 kHz, Bluetooth 4 kHz on Windows and 1 kHz on
-    // Linux (what its Bluetooth stack keeps up with).
+    // Formats: 0 = 16-bit 8 kHz (15 samples per side per report), 8/9/11 = mu-law at 8/4/1 kHz
+    // (31 samples). Each write waits for the controller to take the report, and the controller plays
+    // the samples as they come: over the cable it took ~250 reports a second, not the 533 that 16-bit
+    // needs, so the audio played long and low. Mu-law 8 kHz needs 258 a second: cable and dongle use
+    // it; Bluetooth 4 kHz on Windows and 1 kHz on Linux (what its Bluetooth stack keeps up with).
     static constexpr u8 STEAM_REPORT_PCM_MODE = 0x86;
     static constexpr u8 STEAM_REPORT_PCM_DATA = 0x88;
 
@@ -1234,9 +1238,7 @@ private:
 #else
         static constexpr Format BLUETOOTH{11, 1000, 31};
 #endif
-        const Format format = pid == 0x1302   ? Format{0, 8000, 15}
-                              : pid == 0x1303 ? BLUETOOTH
-                                              : Format{8, 8000, 31};
+        const Format format = pid == 0x1303 ? BLUETOOTH : Format{8, 8000, 31};
         grip_format = format.code;
         grip_rate = format.rate;
         grip_per_report = format.per_report;
@@ -1244,6 +1246,7 @@ private:
             std::scoped_lock lock{grip_audio_mutex};
             grip_target = {};
         }
+        LoadGripCalibration();
         SendGripAudioMode(1, 0);
         SDL_Delay(10);
         SendGripAudioMode(2, grip_format);
@@ -1268,6 +1271,58 @@ private:
             SDL_hid_close(grip_hid);
             grip_hid = nullptr;
         }
+    }
+
+    // calibracion_agarres.txt next to the executable (written by calibrar_vibracion.py, matching the
+    // grips against a DualSense by feel): lines "Hz = dB", the gain the grips need at each frequency
+    // to feel as strong as a DualSense. No file: no change.
+    void LoadGripCalibration() {
+        grip_calibration.clear();
+        const char* base = SDL_GetBasePath();
+        if (!base) {
+            return;
+        }
+        std::FILE* file = std::fopen((std::string(base) + "calibracion_agarres.txt").c_str(), "r");
+        if (!file) {
+            return;
+        }
+        char line[256];
+        while (std::fgets(line, sizeof(line), file)) {
+            if (char* hash = std::strchr(line, '#')) {
+                *hash = '\0';
+            }
+            float hz = 0.0f, db = 0.0f;
+            if (std::sscanf(line, " %f = %f", &hz, &db) == 2 && hz > 0.0f) {
+                grip_calibration.emplace_back(hz, db);
+            }
+        }
+        std::fclose(file);
+        std::sort(grip_calibration.begin(), grip_calibration.end());
+        if (!grip_calibration.empty()) {
+            LOG_INFO(Input, "Steam Controller grips calibrated against a DualSense ({} points)",
+                     grip_calibration.size());
+        }
+    }
+
+    // Linear gain at hz: the calibration in dB, interpolated over log frequency, flat past the ends
+    static f32 CalibrationGain(const std::vector<std::pair<f32, f32>>& points, f32 hz) {
+        if (points.empty() || hz <= 0.0f) {
+            return 1.0f;
+        }
+        f32 db = points.front().second;
+        if (hz >= points.back().first) {
+            db = points.back().second;
+        } else {
+            for (size_t i = 1; i < points.size(); ++i) {
+                const auto& [f0, d0] = points[i - 1];
+                const auto& [f1, d1] = points[i];
+                if (hz >= f0 && hz <= f1) {
+                    db = d0 + (d1 - d0) * std::log(hz / f0) / std::log(f1 / f0);
+                    break;
+                }
+            }
+        }
+        return std::pow(10.0f, db / 20.0f);
     }
 
     // HLE thread, under renhdrum_mutex
@@ -1319,10 +1374,13 @@ private:
             const bool fresh = t.last_game_us != 0 && now_us - t.last_game_us < SWITCH2_STALE_US;
             for (size_t g = 0; g < 2; ++g) {
                 const std::array<GripBand, 2> bands{t.low[g], t.high[g]};
+                const std::array<f32, 2> gain{CalibrationGain(grip_calibration, bands[0].frequency),
+                                              CalibrationGain(grip_calibration, bands[1].frequency)};
                 for (int i = 0; i < n; ++i) {
                     f32 v = 0.0f;
                     for (size_t b = 0; b < 2; ++b) {
-                        const f32 target = fresh ? std::clamp(bands[b].amplitude, 0.0f, 1.0f) : 0.0f;
+                        const f32 target =
+                            fresh ? std::clamp(bands[b].amplitude, 0.0f, 1.0f) * gain[b] : 0.0f;
                         amp[g][b] += (target - amp[g][b]) * glide;
                         const f32 step = two_pi * bands[b].frequency / static_cast<f32>(rate);
                         phase[g][b] = std::fmod(phase[g][b] + step, two_pi);
@@ -1840,6 +1898,7 @@ private:
     u8 grip_format{0};
     int grip_rate{8000};
     int grip_per_report{15};
+    std::vector<std::pair<f32, f32>> grip_calibration; // Hz, dB; read before grip_thread starts
     std::mutex pending_vibration_mutex;
     std::optional<Common::Input::VibrationStatus> pending_vibration;
     SDL_AudioStream* ds_audio_stream{nullptr};
