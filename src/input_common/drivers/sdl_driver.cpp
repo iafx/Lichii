@@ -876,7 +876,12 @@ private:
             steam_tone = {};
             steam_grips = {};
             LOG_INFO(Input, "Initialized {} HD tones for {:04X}:{:04X}", pad_name, vid, pid);
-            const char* mode = kind == ValvePad::Triton ? "Valve HD · 4 motors" : "Valve HD tones";
+            if (kind == ValvePad::Triton) {
+                StartSteamGripAudio(pid);
+            }
+            const char* mode = kind != ValvePad::Triton ? "Valve HD tones"
+                               : grip_audio_running.load(std::memory_order_relaxed) ? "Valve HD · audio grips"
+                                                                                  : "Valve HD · 4 motors";
             PublishPad({pad_name, false, is_bluetooth, mode, false});
         }
     }
@@ -989,12 +994,13 @@ private:
         return SDL_SendJoystickEffect(joystick, effect.data(), static_cast<int>(effect.size()));
     }
 
-    // HD rumble on Valve controllers. Their haptic actuators take tones (one frequency at a time per
-    // motor), not waveforms:
-    //  - Steam Controller (2026): four LRAs. Low band -> grip motor of each side (rumble report 0x80,
-    //    amplitude only, sent directly because SDL_RumbleJoystick skips repeated values while the pad
-    //    stops after ~50 ms); high band -> trackpad motor of each side (tone report 0x83 at the game's
-    //    frequency).
+    // HD rumble on Valve controllers:
+    //  - Steam Controller (2026): four LRAs. The two grip motors take an audio stream (output report
+    //    0x86 turns it on, 0x88 carries the samples, the protocol LiveHaptics found): each grip plays
+    //    both of its side's bands as real waves, like a Joy-Con plays them on its one actuator
+    //    (SteamGripLoop, on a HID handle and thread of its own). The high band also plays on the
+    //    trackpad motor of each side (tone report 0x83), kept out of the trackpads' resonances. If the
+    //    audio stream cannot start, the grips get the low band's amplitude (rumble report 0x80).
     //  - Steam Deck: the two trackpad actuators, one tone per side (feature report 0xEA, tone command).
     //  - Steam Controller (2015): the two trackpad actuators, one pulse train per side (feature report
     //    0x8F); the pulse period sets the frequency, the way the controller plays music.
@@ -1140,8 +1146,12 @@ private:
             const ValveTiming& timing = kind == ValvePad::Classic ? CLASSIC_TIMING : TONE_TIMING;
             ToneTarget target{};
             if (kind == ValvePad::Triton) {
-                grip_write = BuildSteamGrips(now_us, is_right, low, grip_speed);
-                target = {high, v.high_frequency, 0, 0};
+                if (grip_audio_running.load(std::memory_order_relaxed)) {
+                    SetGripAudio(now_us, is_right, low, v.low_frequency, high, v.high_frequency);
+                } else {
+                    grip_write = BuildSteamGrips(now_us, is_right, low, grip_speed);
+                }
+                target = {high, AvoidTrackpadResonance(v.high_frequency), 0, 0};
             } else {
                 target = PlanTone(low, high, v.low_frequency, v.high_frequency, layered);
             }
@@ -1155,6 +1165,212 @@ private:
             SendValveTone(joystick, kind, is_right, action == ToneAction::Play ? &tone : nullptr);
         }
         return true;
+    }
+
+    // Measured on a Steam Controller (2026): its trackpads ring against the shell at 160-170,
+    // 260-270 and 500-540 Hz. A high band there moves to the nearest edge of that band (the grip
+    // still plays the game's own frequency).
+    static f32 AvoidTrackpadResonance(f32 hz) {
+        static constexpr std::array<std::array<f32, 2>, 3> RINGS{{{150.0f, 180.0f},
+                                                                    {250.0f, 280.0f},
+                                                                    {490.0f, 550.0f}}};
+        for (const auto& band : RINGS) {
+            if (hz > band[0] && hz < band[1]) {
+                return hz - band[0] < band[1] - hz ? band[0] : band[1];
+            }
+        }
+        return hz;
+    }
+
+    // ---- Steam Controller (2026) grips as audio --------------------------------------------------
+    // Report 0x86: [id, op (1 off, 2 on), channel, format]; LiveHaptics sends it for channels 2 and 5.
+    // Report 0x88: [id, count, left grip samples from byte 2, right grip samples from byte 33].
+    // Formats: 0 = 16-bit 8 kHz (USB cable, 15 samples per side per report), 8/9/11 = mu-law at
+    // 8/4/1 kHz (31 samples): the Steam dongle takes 8 kHz, Bluetooth 4 kHz on Windows and 1 kHz on
+    // Linux (what its Bluetooth stack keeps up with).
+    static constexpr u8 STEAM_REPORT_PCM_MODE = 0x86;
+    static constexpr u8 STEAM_REPORT_PCM_DATA = 0x88;
+
+    struct GripBand {
+        f32 amplitude{0};
+        f32 frequency{160};
+    };
+    struct GripAudioTarget {
+        std::array<GripBand, 2> low{};  // per grip
+        std::array<GripBand, 2> high{};
+        int64_t last_game_us{0};
+    };
+
+    void SendGripAudioMode(u8 op, u8 format) {
+        for (const u8 channel : {u8{2}, u8{5}}) {
+            const std::array<u8, 4> report{STEAM_REPORT_PCM_MODE, op, channel, format};
+            SDL_hid_write(grip_hid, report.data(), report.size());
+        }
+    }
+
+    // Called with renhdrum_mutex held (InitRenHDrum), like StartDualSenseBluetooth
+    void StartSteamGripAudio(u16 pid) {
+        if (!sdl_joystick || grip_hid) {
+            return;
+        }
+        const char* path = SDL_GetJoystickPath(sdl_joystick.get());
+        if (!path || !*path) {
+            LOG_INFO(Input, "Steam Controller grip audio: no HID path, grips use rumble");
+            return;
+        }
+        grip_hid = SDL_hid_open_path(path);
+        if (!grip_hid) {
+            LOG_WARNING(Input, "Steam Controller grip audio: could not open {}: {}, grips use rumble", path,
+                        SDL_GetError());
+            return;
+        }
+        struct Format {
+            u8 code;
+            int rate;
+            int per_report;
+        };
+#ifdef _WIN32
+        static constexpr Format BLUETOOTH{9, 4000, 31};
+#else
+        static constexpr Format BLUETOOTH{11, 1000, 31};
+#endif
+        const Format format = pid == 0x1302   ? Format{0, 8000, 15}
+                              : pid == 0x1303 ? BLUETOOTH
+                                              : Format{8, 8000, 31};
+        grip_format = format.code;
+        grip_rate = format.rate;
+        grip_per_report = format.per_report;
+        {
+            std::scoped_lock lock{grip_audio_mutex};
+            grip_target = {};
+        }
+        SendGripAudioMode(1, 0);
+        SDL_Delay(10);
+        SendGripAudioMode(2, grip_format);
+        SDL_Delay(200); // the controller needs a moment between off and on
+        grip_audio_running.store(true, std::memory_order_relaxed);
+        grip_thread = std::thread([this] { SteamGripLoop(); });
+        // The grips' rumble motors would fight the audio
+        SendSteamGrips(sdl_joystick.get(), 0, 0);
+        LOG_INFO(Input, "Steam Controller grip audio started ({} samples/s, path {})", grip_rate, path);
+    }
+
+    // Called with renhdrum_mutex held (CleanupRenHDrum)
+    void StopSteamGripAudio() {
+        grip_audio_running.store(false, std::memory_order_relaxed);
+        if (grip_thread.joinable()) {
+            grip_thread.join();
+        }
+        if (grip_hid) {
+            SendGripAudioMode(1, grip_format);
+            SDL_Delay(150);
+            SendGripAudioMode(1, 0);
+            SDL_hid_close(grip_hid);
+            grip_hid = nullptr;
+        }
+    }
+
+    // HLE thread, under renhdrum_mutex
+    void SetGripAudio(int64_t now_us, bool is_right, f32 low, f32 low_hz, f32 high, f32 high_hz) {
+        std::scoped_lock lock{grip_audio_mutex};
+        const size_t g = is_right ? 1 : 0;
+        grip_target.low[g] = {low, std::clamp(low_hz, 20.0f, 1300.0f)};
+        grip_target.high[g] = {high, std::clamp(high_hz, 20.0f, 1300.0f)};
+        grip_target.last_game_us = now_us;
+    }
+
+    static u8 MuLaw(int sample) {
+        const int sign = sample < 0 ? 0x80 : 0;
+        int magnitude = (std::min)(std::abs(sample), 32635) + 0x84;
+        int exponent = 7;
+        for (int mask = 0x4000; exponent > 0 && !(magnitude & mask); mask >>= 1) {
+            --exponent;
+        }
+        const int mantissa = (magnitude >> (exponent + 3)) & 0x0F;
+        return static_cast<u8>(~(sign | (exponent << 4) | mantissa));
+    }
+
+    // Runs on grip_thread. Never takes renhdrum_mutex: CleanupRenHDrum joins it (holding that
+    // mutex) before the HID handle is closed. The game's vibration reaches us only when it changes,
+    // so the last one keeps playing for up to SWITCH2_STALE_US, then fades out (a paused or stalled
+    // game goes quiet). Amplitudes glide over 3 ms and phases run on, so changes do not click.
+    void SteamGripLoop() {
+        Common::SetCurrentThreadName("SteamGrips");
+        const int rate = grip_rate;
+        const int n = grip_per_report;
+        const Uint64 period_ns = 1'000'000'000ULL * static_cast<Uint64>(n) / static_cast<Uint64>(rate);
+        const f32 glide = 1.0f - std::exp(-1.0f / (static_cast<f32>(rate) * 0.003f));
+        constexpr f32 two_pi = 2.0f * std::numbers::pi_v<f32>;
+        std::array<std::array<f32, 2>, 2> amp{};   // [grip][band]
+        std::array<std::array<f32, 2>, 2> phase{};
+        std::array<u8, 64> report{};
+        std::array<std::array<int, 31>, 2> pcm{};
+        Uint64 next = SDL_GetTicksNS();
+        int fails_in_row = 0;
+        while (grip_audio_running.load(std::memory_order_relaxed)) {
+            GripAudioTarget t;
+            {
+                std::scoped_lock lock{grip_audio_mutex};
+                t = grip_target;
+            }
+            const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count(); // the clock of the game's vibration timestamps
+            const bool fresh = t.last_game_us != 0 && now_us - t.last_game_us < SWITCH2_STALE_US;
+            for (size_t g = 0; g < 2; ++g) {
+                const std::array<GripBand, 2> bands{t.low[g], t.high[g]};
+                for (int i = 0; i < n; ++i) {
+                    f32 v = 0.0f;
+                    for (size_t b = 0; b < 2; ++b) {
+                        const f32 target = fresh ? std::clamp(bands[b].amplitude, 0.0f, 1.0f) : 0.0f;
+                        amp[g][b] += (target - amp[g][b]) * glide;
+                        const f32 step = two_pi * bands[b].frequency / static_cast<f32>(rate);
+                        phase[g][b] = std::fmod(phase[g][b] + step, two_pi);
+                        v += amp[g][b] * std::sin(phase[g][b]);
+                    }
+                    // Both bands share one motor: a soft limit instead of a hard clip
+                    v = std::tanh(1.2f * v) / std::tanh(1.2f);
+                    pcm[g][i] = static_cast<int>(std::lround(std::clamp(v, -1.0f, 1.0f) * 0.95f * 32767.0f));
+                }
+            }
+            report.fill(0);
+            report[0] = STEAM_REPORT_PCM_DATA;
+            if (grip_format == 0) {
+                report[1] = static_cast<u8>(2 * n);
+                for (int i = 0; i < n; ++i) {
+                    const u16 l = static_cast<u16>(static_cast<s16>(pcm[0][i]));
+                    const u16 r = static_cast<u16>(static_cast<s16>(pcm[1][i]));
+                    report[2 + 2 * i] = static_cast<u8>(l & 0xFF);
+                    report[3 + 2 * i] = static_cast<u8>(l >> 8);
+                    report[33 + 2 * i] = static_cast<u8>(r & 0xFF);
+                    report[34 + 2 * i] = static_cast<u8>(r >> 8);
+                }
+            } else {
+                report[1] = static_cast<u8>(n);
+                for (int i = 0; i < n; ++i) {
+                    report[2 + i] = MuLaw(pcm[0][i]);
+                    report[33 + i] = MuLaw(pcm[1][i]);
+                }
+            }
+            if (SDL_hid_write(grip_hid, report.data(), report.size()) < 0) {
+                ++fails_in_row;
+            } else {
+                fails_in_row = 0;
+            }
+            if (fails_in_row >= 100) {
+                LOG_WARNING(Input, "Steam Controller grip audio: writes failing ({}), grips back to rumble",
+                            SDL_GetError());
+                break;
+            }
+            next += period_ns;
+            const Uint64 now = SDL_GetTicksNS();
+            if (next > now) {
+                SDL_DelayPrecise(next - now);
+            } else if (now - next > 100'000'000ULL) {
+                next = now; // stalled > 100 ms: resync instead of bursting
+            }
+        }
+        grip_audio_running.store(false, std::memory_order_relaxed);
     }
 
     // Plays (tone != nullptr) or stops a tone on one side
@@ -1586,6 +1802,7 @@ private:
             switch2_hd = false;
         }
         if (valve_pad != ValvePad::None) {
+            StopSteamGripAudio();
             if (sdl_joystick) {
                 StopValveHaptics(sdl_joystick.get(), valve_pad);
             }
@@ -1614,6 +1831,15 @@ private:
     Switch2State switch2_state{};
     std::array<SteamToneSide, 2> steam_tone{};
     SteamGrips steam_grips{};
+    // Steam Controller (2026) grips as audio: second HID handle + sender thread for report 0x88
+    SDL_hid_device* grip_hid{nullptr};
+    std::thread grip_thread;
+    std::atomic<bool> grip_audio_running{false};
+    std::mutex grip_audio_mutex;
+    GripAudioTarget grip_target{};
+    u8 grip_format{0};
+    int grip_rate{8000};
+    int grip_per_report{15};
     std::mutex pending_vibration_mutex;
     std::optional<Common::Input::VibrationStatus> pending_vibration;
     SDL_AudioStream* ds_audio_stream{nullptr};
