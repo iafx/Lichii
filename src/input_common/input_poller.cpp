@@ -924,11 +924,19 @@ std::unique_ptr<Common::Input::InputDevice> InputFactory::CreateStickDevice(
     };
 
     const auto axis_x = params.Get("axis_x", 0);
+    float offset_x = params.Get("offset_x", 0.0f);
+    float offset_y = params.Get("offset_y", 0.0f);
+    if (std::abs(offset_x) > 0.5f) {
+        offset_x = 0.0f;
+    }
+    if (std::abs(offset_y) > 0.5f) {
+        offset_y = 0.0f;
+    }
     const Common::Input::AnalogProperties properties_x = {
         .deadzone = deadzone,
         .range = range,
         .threshold = threshold,
-        .offset = std::clamp(params.Get("offset_x", 0.0f), -1.0f, 1.0f),
+        .offset = std::clamp(offset_x, -1.0f, 1.0f),
         .inverted = params.Get("invert_x", "+") == "-",
     };
 
@@ -937,7 +945,7 @@ std::unique_ptr<Common::Input::InputDevice> InputFactory::CreateStickDevice(
         .deadzone = deadzone,
         .range = range,
         .threshold = threshold,
-        .offset = std::clamp(params.Get("offset_y", 0.0f), -1.0f, 1.0f),
+        .offset = std::clamp(offset_y, -1.0f, 1.0f),
         .inverted = params.Get("invert_y", "+") != "+",
     };
     input_engine->PreSetController(identifier);
@@ -1083,11 +1091,19 @@ std::unique_ptr<Common::Input::InputDevice> InputFactory::CreateMotionDevice(
     const auto threshold = std::clamp(params.Get("threshold", 0.5f), 0.0f, 1.0f);
 
     const auto axis_x = params.Get("axis_x", 0);
+    float offset_x = params.Get("offset_x", 0.0f);
+    float offset_y = params.Get("offset_y", 0.0f);
+    if (std::abs(offset_x) > 0.5f) {
+        offset_x = 0.0f;
+    }
+    if (std::abs(offset_y) > 0.5f) {
+        offset_y = 0.0f;
+    }
     const Common::Input::AnalogProperties properties_x = {
         .deadzone = deadzone,
         .range = range,
         .threshold = threshold,
-        .offset = std::clamp(params.Get("offset_x", 0.0f), -1.0f, 1.0f),
+        .offset = std::clamp(offset_x, -1.0f, 1.0f),
         .inverted = params.Get("invert_x", "+") == "-",
     };
 
@@ -1096,7 +1112,7 @@ std::unique_ptr<Common::Input::InputDevice> InputFactory::CreateMotionDevice(
         .deadzone = deadzone,
         .range = range,
         .threshold = threshold,
-        .offset = std::clamp(params.Get("offset_y", 0.0f), -1.0f, 1.0f),
+        .offset = std::clamp(offset_y, -1.0f, 1.0f),
         .inverted = params.Get("invert_y", "+") != "+",
     };
 
