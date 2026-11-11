@@ -267,7 +267,7 @@ option(LICHII_USE_BUNDLED_SDL3 "Download bundled SDL3 build" ${EXT_DEFAULT})
 option(ENABLE_RENHDRUM "Play controller vibration through RenHDrum when renhdrum.dll is present" ON)
 option(RENHDRUM_DOWNLOAD "Download the prebuilt renhdrum.dll next to the executable (Windows x64)" OFF)
 cmake_dependent_option(RENHDRUM_SDL_PATCHES
-    "Build SDL3 from source with RenHDrum's HD Rumble transport patches" OFF "ENABLE_RENHDRUM" OFF)
+    "Build SDL3 from source with RenHDrum's HD Rumble transport patches" ON "ENABLE_RENHDRUM" OFF)
 if (RENHDRUM_SDL_PATCHES AND LICHII_USE_BUNDLED_SDL3)
     message(STATUS "RENHDRUM_SDL_PATCHES: building SDL3 from source instead of the bundled build")
     set(LICHII_USE_BUNDLED_SDL3 OFF)
