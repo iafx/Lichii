@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <thread>
 
@@ -111,6 +112,23 @@ const RenHDrumApi& Api() {
         return a;
     }();
     return api;
+}
+
+/// SDL audio for DualSense USB haptics: initialized once and never quit while the emulator runs.
+/// Quitting it on unplug ran SDL's queued "device lost" work on freed state (RenHDrum#4, fix by
+/// iafx). Every pad shares this one reference.
+bool EnsureAudioForHaptics() {
+    static std::mutex audio_mutex;
+    static bool audio_ready = false;
+    std::scoped_lock lock{audio_mutex};
+    if (audio_ready) {
+        return true;
+    }
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO)) {
+        return false;
+    }
+    audio_ready = true;
+    return true;
 }
 
 /// Hands the guest's Switch 2 Mode (set by HID commands 213 / 214) to RenHDrum when it changes.
@@ -257,7 +275,6 @@ struct RenHDrumPad::Impl {
     RenHdcEngine* engine{};
     RenHdcDualSenseDsp* dsp{};
     SDL_AudioStream* audio_stream{};
-    bool audio_inited{};
     bool audio_opening{};
     int audio_attempts{};
     std::int64_t audio_next_us{};
@@ -430,10 +447,8 @@ struct RenHDrumPad::Impl {
             StartDualSenseBluetooth(js, gp);
             return;
         }
-        // SDL counts subsystem references: every pad with a stream holds one, so one pad going
-        // away does not stop another's audio.
         SDL_AudioStream* stream = nullptr;
-        const bool inited = SDL_InitSubSystem(SDL_INIT_AUDIO);
+        const bool inited = EnsureAudioForHaptics();
         if (inited) {
             stream = OpenDualSenseAudioStream(js);
         } else {
@@ -445,7 +460,6 @@ struct RenHDrumPad::Impl {
             audio_opening = false;
             if (stream && joystick && dsp && !audio_stream) {
                 audio_stream = stream;
-                audio_inited = true;
                 opened = true;
                 // Start only once published: from here on, the DSP is replaced or freed only
                 // under SDL_LockAudioStream or after SDL_DestroyAudioStream. The callback never
@@ -456,7 +470,6 @@ struct RenHDrumPad::Impl {
                     LOG_WARNING(Input, "RenHDrum: DualSense audio did not start: {}",
                                 SDL_GetError());
                     audio_stream = nullptr;
-                    audio_inited = false;
                     opened = false;
                 }
             }
@@ -465,9 +478,6 @@ struct RenHDrumPad::Impl {
             // No device yet, or shut down while opening
             if (stream) {
                 SDL_DestroyAudioStream(stream);
-            }
-            if (inited) {
-                SDL_QuitSubSystem(SDL_INIT_AUDIO);
             }
         }
         if (opened) {
@@ -653,10 +663,6 @@ struct RenHDrumPad::Impl {
             // Waits for a running audio callback; the callback never takes `mutex`
             SDL_DestroyAudioStream(audio_stream);
             audio_stream = nullptr;
-        }
-        if (audio_inited) {
-            SDL_QuitSubSystem(SDL_INIT_AUDIO);
-            audio_inited = false;
         }
         if (xbox) {
             api.xbox_destroy(xbox);
