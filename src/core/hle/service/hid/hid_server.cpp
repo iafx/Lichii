@@ -964,6 +964,7 @@ Result IHidServer::SendVibrationValue(Core::HID::VibrationDeviceHandle vibration
               vibration_device_handle.npad_type, vibration_device_handle.npad_id,
               vibration_device_handle.device_index, aruid.pid);
 
+    Settings::values.nx2_active_mode.store(0, std::memory_order_relaxed);
     GetResourceManager()->SendVibrationValue(aruid.pid, vibration_device_handle, vibration_value);
     R_SUCCEED()
 }
@@ -1029,6 +1030,8 @@ Result IHidServer::SendVibrationValues(
 
     R_UNLESS(vibration_handles.size() == vibration_values.size(), ResultVibrationArraySizeMismatch);
 
+    // Switch 1 style vibration: no Switch 2 Mode in effect
+    Settings::values.nx2_active_mode.store(0, std::memory_order_relaxed);
     for (std::size_t i = 0; i < vibration_handles.size(); i++) {
         R_TRY(GetResourceManager()->SendVibrationValue(aruid.pid, vibration_handles[i],
                                                        vibration_values[i]));
@@ -1195,10 +1198,13 @@ private:
 } // namespace
 
 Result IHidServer::SendNx2VibrationValues(
-    u64 unknown, AppletResourceUserId aruid,
+    u64 mode, AppletResourceUserId aruid,
     InArray<Core::HID::VibrationDeviceHandle, BufferAttr_HipcPointer> vibration_handles,
     InArray<Core::HID::VibrationValue, BufferAttr_HipcPointer> vibration_values) {
-    LOG_DEBUG(Service_HID, "called, unknown={}, applet_resource_user_id={}", unknown, aruid.pid);
+    LOG_DEBUG(Service_HID, "called, mode={}, applet_resource_user_id={}", mode, aruid.pid);
+
+    // The guest Mode reaches RenHDrum through the pad driver (RenHDrumPad reads this on each sample)
+    Settings::values.nx2_active_mode.store(mode == 2 ? 2 : 0, std::memory_order_relaxed);
 
     // Unlike 206 this never fails: rumble is best effort and the command is only known from
     // captures, so an unexpected handle or layout shouldn't return an error a game may treat as
@@ -1207,7 +1213,7 @@ Result IHidServer::SendNx2VibrationValues(
     auto& trace = Nx2VibrationTrace::Instance();
     for (std::size_t i = 0; i < count; i++) {
         if (trace.Enabled()) {
-            trace.Record(unknown, vibration_handles[i], vibration_values[i]);
+            trace.Record(mode, vibration_handles[i], vibration_values[i]);
         }
         const auto result = GetResourceManager()->SendVibrationValue(
             aruid.pid, vibration_handles[i], vibration_values[i]);
@@ -1234,10 +1240,19 @@ Result IHidServer::SendVibrationValueInMode(std::array<u8, 0x18> raw,
                                 std::isfinite(value.low_frequency) &&
                                 std::isfinite(value.high_frequency);
     constexpr std::array<std::size_t, 2> handle_offsets{0x04, 0x00};
+    std::size_t handle_offset = 0x04;
     const bool has_handle = std::ranges::any_of(handle_offsets, [&](std::size_t offset) {
         std::memcpy(&handle, raw.data() + offset, sizeof(handle));
+        handle_offset = offset;
         return IsVibrationHandleValid(handle).IsSuccess();
     });
+
+    // The mode sits in the other 4 bytes; Mode 2 reaches RenHDrum through the pad driver
+    if (has_handle) {
+        u32 mode{};
+        std::memcpy(&mode, raw.data() + (handle_offset == 0x04 ? 0x00 : 0x04), sizeof(mode));
+        Settings::values.nx2_active_mode.store(mode == 2 ? 2 : 0, std::memory_order_relaxed);
+    }
 
     static std::once_flag logged;
     std::call_once(logged, [&raw] {

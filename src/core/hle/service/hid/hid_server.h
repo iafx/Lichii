@@ -191,7 +191,7 @@ private:
     // Switch 2 sends vibration every frame with 214: pointer buffers of device handles and values
     // like 206, but the aruid is raw data after an unknown u64 instead of a sent process id.
     Result SendNx2VibrationValues(
-        u64 unknown, AppletResourceUserId aruid,
+        u64 mode, AppletResourceUserId aruid,
         InArray<Core::HID::VibrationDeviceHandle, BufferAttr_HipcPointer> vibration_handles,
         InArray<Core::HID::VibrationValue, BufferAttr_HipcPointer> vibration_values);
     // 213: one handle and value with a mode, sent per controller every frame by Kirby Air Riders.
