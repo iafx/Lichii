@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <map>
 #include <memory>
 #include <optional>
@@ -959,6 +960,10 @@ struct Values {
     // has them; 0 is off
     Setting<u8, true> trigger_rumble_strength{linkage, 0, 0, 100, "trigger_rumble_strength",
                                               Category::Controls};
+
+    // Switch 2 rumble Mode last sent by the guest (command 213 / 214): 2 = Mode 2, else 0. Written by
+    // the HID service, read by the RenHDrum pad driver. Not a user setting.
+    std::atomic<int> nx2_active_mode{0};
 
     // RenHDrum HD Rumble (Switch Pro Controller / Joy-Con) and DualSense haptics. Defaults are
     // Ryuhdr 0.2.6's recommended mode. Read by the SDL driver on every vibration, so a change in

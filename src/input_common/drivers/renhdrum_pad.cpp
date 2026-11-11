@@ -56,6 +56,8 @@ struct RenHDrumApi {
     decltype(&renhdrum_xbox_rumble_push_half_sample) xbox_push_half_sample{};
     decltype(&renhdrum_xbox_rumble_tick) xbox_tick{};
     decltype(&renhdrum_xbox_rumble_resend) xbox_resend{};
+    // Optional (RenHDrum 0.3.0+): Switch 2 rumble Mode. An older library keeps Switch 1 behaviour.
+    decltype(&renhdrum_set_nx2_mode) set_nx2_mode{};
     bool HasXbox() const {
         return xbox_create && xbox_destroy && xbox_push_half_sample && xbox_tick && xbox_resend;
     }
@@ -101,6 +103,7 @@ const RenHDrumApi& Api() {
                                       &a.xbox_push_half_sample);
             (void)a.library.GetSymbol("renhdrum_xbox_rumble_tick", &a.xbox_tick);
             (void)a.library.GetSymbol("renhdrum_xbox_rumble_resend", &a.xbox_resend);
+            (void)a.library.GetSymbol("renhdrum_set_nx2_mode", &a.set_nx2_mode);
             LOG_INFO(Input, "RenHDrum: loaded {}", name);
         } else {
             LOG_WARNING(Input, "RenHDrum: {} is missing functions, using the standard rumble", name);
@@ -108,6 +111,15 @@ const RenHDrumApi& Api() {
         return a;
     }();
     return api;
+}
+
+/// Hands the guest's Switch 2 Mode (set by HID commands 213 / 214) to RenHDrum when it changes.
+void ApplyNx2Mode(const RenHDrumApi& api) {
+    static std::atomic<int> applied{0};
+    const int mode = Settings::values.nx2_active_mode.load(std::memory_order_relaxed);
+    if (applied.exchange(mode, std::memory_order_relaxed) != mode && api.set_nx2_mode) {
+        api.set_nx2_mode(mode);
+    }
 }
 
 constexpr Uint16 NintendoVendorId = 0x057E;
@@ -841,6 +853,7 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
         change = impl->RefreshUserSettings();
         const auto& u = impl->user;
         const auto& api = Api();
+        ApplyNx2Mode(api);
         if (impl->xbox && u.hd_enabled && u.xbox_enabled && u.xbox_direct) {
             // Both halves share one pad: each motor follows the stronger side
             const std::size_t side = is_right ? 1 : 0;
