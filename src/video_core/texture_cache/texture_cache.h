@@ -1656,7 +1656,8 @@ bool TextureCache<P>::TemporalUpscale(const Tegra::Engines::Fermi2D::Surface& ds
                                       const Tegra::Engines::Fermi2D::Surface& motion_vectors,
                                       const Tegra::Texture::TICEntry* depth,
                                       std::array<f32, 2> jitter, std::array<f32, 2> motion_scale,
-                                      bool use_history) {
+                                      bool use_history,
+                                      std::optional<std::array<u32, 2>> render_region) {
     if constexpr (FRAMEBUFFER_BLITS) {
         return false;
     } else {
@@ -1733,11 +1734,14 @@ bool TextureCache<P>::TemporalUpscale(const Tegra::Engines::Fermi2D::Surface& ds
         if (src_size.width != src.width || src_size.height != src.height) {
             return false;
         }
+        // The game may render only part of its colour target.
+        const std::array<u32, 2> guest_size =
+            render_region.value_or(std::array{src_size.width, src_size.height});
         const std::array<u32, 2> render_size =
             rescaled(src_id)
-                ? std::array{Settings::values.resolution_info.ScaleUp(src_size.width),
-                             Settings::values.resolution_info.ScaleUp(src_size.height)}
-                : std::array{src_size.width, src_size.height};
+                ? std::array{Settings::values.resolution_info.ScaleUp(guest_size[0]),
+                             Settings::values.resolution_info.ScaleUp(guest_size[1])}
+                : guest_size;
         // The jitter is in the input's guest pixels.
         if (rescaled(src_id)) {
             const f32 factor = Settings::values.resolution_info.up_factor;
@@ -1793,6 +1797,10 @@ std::pair<typename P::ImageView*, bool> TextureCache<P>::TryFindFramebufferImage
             return PixelFormat::R5G6B5_UNORM;
         case Service::android::PixelFormat::Bgra8888:
             return PixelFormat::B8G8R8A8_UNORM;
+        case Service::android::PixelFormat::Rgba1010102:
+            return PixelFormat::A2B10G10R10_UNORM;
+        case Service::android::PixelFormat::RgbaFp16:
+            return PixelFormat::R16G16B16A16_FLOAT;
         default:
             return PixelFormat::A8B8G8R8_UNORM;
         }

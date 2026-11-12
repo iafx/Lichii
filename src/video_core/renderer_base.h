@@ -9,6 +9,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/common_funcs.h"
@@ -90,6 +91,14 @@ public:
     /// How many NVIDIA DLSS evaluations ran so far and the mode of the last one
     [[nodiscard]] virtual DlssStatus GetDlssStatus() const {
         return {};
+    }
+
+    /// Asks for one host GPU time sample of an upcoming frame
+    virtual void RequestGpuBusySample() {}
+
+    /// Host GPU busy time of the last sampled frame, nullopt when it isn't measured
+    [[nodiscard]] virtual std::optional<double> GetGpuBusyMs() const {
+        return std::nullopt;
     }
 
     [[nodiscard]] const RendererDeviceInfo& GetDeviceInfo() const {

@@ -246,7 +246,12 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
 #endif
 
         ConfigurationShared::Widget* widget = [&]() {
-            if (setting->Id() == Settings::values.fsr_sharpening_slider.Id()) {
+            if (setting->Id() == Settings::values.hdr_reference_white.Id() ||
+                setting->Id() == Settings::values.hdr_peak_luminance.Id()) {
+                return builder.BuildWidget(setting, apply_funcs,
+                                           ConfigurationShared::RequestType::SpinBox, true, 1.0f,
+                                           nullptr, tr("nits"));
+            } else if (setting->Id() == Settings::values.fsr_sharpening_slider.Id()) {
                 // FSR needs a reversed slider and a 0.5 multiplier
                 return builder.BuildWidget(
                     setting, apply_funcs, ConfigurationShared::RequestType::ReverseSlider, true,
@@ -272,6 +277,13 @@ void ConfigureGraphics::Setup(const ConfigurationShared::Builder& builder) {
                                      setting->Id() == Settings::values.nvidia_dlss_preset.Id())) {
             widget->setVisible(nvidia_dlss_checkbox->isChecked());
             connect(nvidia_dlss_checkbox, &QCheckBox::toggled, widget, &QWidget::setVisible);
+        }
+
+        if (setting->Id() == Settings::values.hdr_mode.Id() ||
+            setting->Id() == Settings::values.hdr_swapchain.Id() ||
+            setting->Id() == Settings::values.hdr_reference_white.Id() ||
+            setting->Id() == Settings::values.hdr_peak_luminance.Id()) {
+            hdr_widgets.push_back(widget);
         }
 
         if (setting->Id() == Settings::values.renderer_backend.Id()) {
@@ -550,6 +562,9 @@ void ConfigureGraphics::UpdateAPILayout() {
     const auto current_backend = GetCurrentGraphicsBackend();
     const bool is_vulkan = current_backend == Settings::RendererBackend::Vulkan;
     vulkan_device_widget->setVisible(is_vulkan);
+    for (auto* widget : hdr_widgets) {
+        widget->setVisible(is_vulkan);
+    }
     if (is_vulkan && int(vulkan_device) < vulkan_device_combobox->count()) {
         vulkan_device_combobox->setCurrentIndex(vulkan_device);
     }

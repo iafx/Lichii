@@ -618,9 +618,16 @@ TEST_CASE("Storage binding cache preserves native and table size policies", "[bu
     f.Descriptor(base, 256);
     REQUIRE(f.Bind().size == 4096);
     REQUIRE(f.Bind(false, true).size == 8 << 20);
-    REQUIRE(f.Bind(false, true, false, true).size == 80 << 20);
+    REQUIRE(f.Bind(false, true, false, true).size == 8 << 20);
     REQUIRE(f.Bind(true, true, false, true).size == 8 << 20);
     REQUIRE(f.Bind(false, false, true).size == 80 << 20);
+    f.Descriptor(base, 40 << 20);
+    REQUIRE(f.Bind(false, true, false, true).size == 40 << 20);
+    REQUIRE(f.Bind(true, true, false, true).size == 8 << 20);
+    REQUIRE(f.Bind(false, true).size == 8 << 20);
+    f.Descriptor(base, 100 << 20);
+    REQUIRE(f.Bind(false, true, false, true).size == 8 << 20);
+    f.Descriptor(base, 256);
     REQUIRE(f.Bind(true, false, true).size == 256);
     f.Descriptor(base, (1ULL << 32) | 256);
     REQUIRE(f.Bind().size == 8 << 20);
