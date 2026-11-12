@@ -185,7 +185,7 @@ struct UserSettings {
     bool envelope_5ms{true};
     bool frequency_in_packet{true};
     bool crisp_notes{true};
-    int bluetooth_level{3};
+    int bluetooth_level{2};
     bool bt_after_input{true};
     bool bt_fast{true};
     bool bt_crisp_notes{true};
@@ -205,30 +205,36 @@ struct UserSettings {
 
 UserSettings ReadUserSettings() {
     const auto& s = Settings::values;
+    // The HD Rumble dialog only shows the master switch. Unless hd_rumble_advanced is set by hand
+    // in qt-config.ini, every tuning value is the built-in default, whatever the config or the
+    // per-game settings hold (an old config may carry values the dialog no longer shows).
+    const bool advanced = s.hd_rumble_advanced.GetValue();
+    const auto pick = [advanced](const auto& setting) {
+        return advanced ? setting.GetValue() : setting.GetDefault();
+    };
     return {
         .hd_enabled = s.hd_rumble_enabled.GetValue(),
-        .usb_interval_ms = std::clamp(s.hd_rumble_usb_interval_ms.GetValue(), 5, 100),
-        .envelope_5ms = s.hd_rumble_envelope_5ms.GetValue(),
-        .frequency_in_packet = s.hd_rumble_frequency_in_packet.GetValue(),
-        .crisp_notes = s.hd_rumble_crisp_notes.GetValue(),
-        .bluetooth_level = std::clamp(s.hd_rumble_bluetooth_level.GetValue(), 1, 3),
-        .bt_after_input = s.hd_rumble_bt_after_input.GetValue(),
-        .bt_fast = s.hd_rumble_bt_fast.GetValue(),
-        .bt_crisp_notes = s.hd_rumble_bt_crisp_notes.GetValue(),
-        .dualsense_enabled = s.dualsense_haptics_enabled.GetValue(),
-        .dualsense_volume = std::clamp(s.dualsense_haptics_volume.GetValue(), 0, 100),
-        .dualsense_crisp_notes = s.dualsense_crisp_notes.GetValue(),
-        .xbox_enabled = s.xbox_rumble_enabled.GetValue(),
-        .xbox_strength = std::clamp(s.xbox_motor_strength.GetValue(), 0, 1000),
-        .xbox_direct = s.xbox_rumble_mode.GetValue() == 1,
-        .xbox_detail_mix = std::clamp(s.xbox_detail_mix.GetValue(), 0, 100),
-        .xbox_hit_accents = std::clamp(s.xbox_hit_accents.GetValue(), 0, 100),
-        .xbox_trigger_mix = std::clamp(s.xbox_trigger_mix.GetValue(), 0, 100),
-        .gain = std::clamp(s.hd_rumble_gain.GetValue(), 25, 1000),
-        .low_boost = std::clamp(s.hd_rumble_low_boost.GetValue(), 0, 100),
+        .usb_interval_ms = std::clamp(pick(s.hd_rumble_usb_interval_ms), 5, 100),
+        .envelope_5ms = pick(s.hd_rumble_envelope_5ms),
+        .frequency_in_packet = pick(s.hd_rumble_frequency_in_packet),
+        .crisp_notes = pick(s.hd_rumble_crisp_notes),
+        .bluetooth_level = std::clamp(pick(s.hd_rumble_bluetooth_level), 1, 3),
+        .bt_after_input = pick(s.hd_rumble_bt_after_input),
+        .bt_fast = pick(s.hd_rumble_bt_fast),
+        .bt_crisp_notes = pick(s.hd_rumble_bt_crisp_notes),
+        .dualsense_enabled = pick(s.dualsense_haptics_enabled),
+        .dualsense_volume = std::clamp(pick(s.dualsense_haptics_volume), 0, 100),
+        .dualsense_crisp_notes = pick(s.dualsense_crisp_notes),
+        .xbox_enabled = pick(s.xbox_rumble_enabled),
+        .xbox_strength = std::clamp(pick(s.xbox_motor_strength), 0, 1000),
+        .xbox_direct = pick(s.xbox_rumble_mode) == 1,
+        .xbox_detail_mix = std::clamp(pick(s.xbox_detail_mix), 0, 100),
+        .xbox_hit_accents = std::clamp(pick(s.xbox_hit_accents), 0, 100),
+        .xbox_trigger_mix = std::clamp(pick(s.xbox_trigger_mix), 0, 100),
+        .gain = std::clamp(pick(s.hd_rumble_gain), 25, 1000),
+        .low_boost = std::clamp(pick(s.hd_rumble_low_boost), 0, 100),
     };
 }
-
 // Gain, then a power curve that lifts weak vibrations more than strong ones (exponent 1.0 at
 // boost 0 down to 0.4 at boost 100). Below a small knee the curve turns quadratic, so the
 // near-silent values games send between hits do not become a constant buzz.

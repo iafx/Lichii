@@ -969,6 +969,9 @@ struct Values {
     // Ryuhdr 0.2.6's recommended mode. Read by the SDL driver on every vibration, so a change in
     // the HD Rumble dialog applies to connected controllers right away.
     Setting<bool> hd_rumble_enabled{linkage, true, "hd_rumble_enabled", Category::Controls};
+    // Off (default): the HD Rumble dialog shows only the switch and the tuning values below are
+    // ignored (built-in defaults). On: edit qt-config.ini by hand; no UI control sets it.
+    Setting<bool> hd_rumble_advanced{linkage, false, "hd_rumble_advanced", Category::Controls};
     // Amplitude gain in percent for everything RenHDrum plays. Switchable: some Switch 2 games
     // (Ocarina of Time) send amplitudes below 0.1 that the Joy-Con 2 still plays strongly.
     SwitchableSetting<int> hd_rumble_gain{linkage, 100, "hd_rumble_gain", Category::Controls};
@@ -982,7 +985,7 @@ struct Values {
                                                 Category::Controls};
     Setting<bool> hd_rumble_crisp_notes{linkage, true, "hd_rumble_crisp_notes",
                                         Category::Controls};
-    Setting<int> hd_rumble_bluetooth_level{linkage, 3, "hd_rumble_bluetooth_level", Category::Controls};
+    Setting<int> hd_rumble_bluetooth_level{linkage, 2, "hd_rumble_bluetooth_level", Category::Controls};
     Setting<bool> hd_rumble_bt_after_input{linkage, true, "hd_rumble_bt_after_input",
                                            Category::Controls};
     Setting<bool> hd_rumble_bt_fast{linkage, true, "hd_rumble_bt_fast", Category::Controls};
