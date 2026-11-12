@@ -1426,12 +1426,13 @@ private:
     // grew 17 ms every 10 minutes with no limit (88 -> 112 ms in 15 min). When it runs dry it
     // starts again with its ~80 ms of buffer, so in a silence a few reports are left out once a
     // second (GRIP_DRAIN_MS) and the delay stays put (flat over 15 min). A vibration that never
-    // stops loses one report every GRIP_FORCE_DRAIN_NS instead; the wave is not advanced for it,
+    // stops loses one report every GRIP_FORCE_DRAIN_PERIODS reports instead (~33 ppm, a little
+    // more than the drift: every ~4 min at 4 kHz, ~2 at 8 kHz); the wave is not advanced for it,
     // so nothing is cut, it only plays that much sooner.
     static constexpr int GRIP_DRAIN_MS = 23;
     static constexpr Uint64 GRIP_QUIET_NS = 50'000'000ULL;
     static constexpr Uint64 GRIP_DRAIN_EVERY_NS = 1'000'000'000ULL;
-    static constexpr Uint64 GRIP_FORCE_DRAIN_NS = 240'000'000'000ULL;
+    static constexpr Uint64 GRIP_FORCE_DRAIN_PERIODS = 30'303ULL;
 
     void SteamGripLoop() {
         Common::SetCurrentThreadName("SteamGrips");
@@ -1448,6 +1449,7 @@ private:
         Uint64 next = SDL_GetTicksNS();
         int fails_in_row = 0;
         const int drain_reports = (std::max)(1, (rate * GRIP_DRAIN_MS / 1000 + n - 1) / n);
+        const Uint64 force_drain_ns = period_ns * GRIP_FORCE_DRAIN_PERIODS;
         Uint64 last_drain = next;
         Uint64 quiet_since = 0; // 0: not quiet
         int drain_left = 0;
@@ -1483,7 +1485,7 @@ private:
             if (!quiet) {
                 quiet_since = 0;
                 drain_left = 0;
-                if (tick - last_drain >= GRIP_FORCE_DRAIN_NS) {
+                if (tick - last_drain >= force_drain_ns) {
                     skip = true;
                     last_drain = tick;
                 }
