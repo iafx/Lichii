@@ -187,6 +187,8 @@ ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
     connect(xbox_mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &ConfigureHdRumble::UpdateEnabledState);
     connect(envelope_5ms, &QCheckBox::toggled, this, &ConfigureHdRumble::UpdateEnabledState);
+    connect(bt_level, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            &ConfigureHdRumble::UpdateEnabledState);
 
     LoadConfiguration();
     // The two per-controller switches in the simple view mirror the ones in the (hidden) pages
@@ -230,6 +232,7 @@ QWidget* ConfigureHdRumble::CreateSwitchPage() {
                             "Bluetooth link."));
     bt_after_input = new QCheckBox(tr("Send right after an input report"));
     bt_fast = new QCheckBox(tr("5 ms envelope while the link is idle"));
+    bt_fast->setToolTip(tr("Runs at level 3 only."));
     bt_crisp_notes = new QCheckBox(tr("Crisp notes"));
     bt->addRow(tr("Level"), bt_level);
     bt->addRow(bt_after_input);
@@ -411,7 +414,7 @@ void ConfigureHdRumble::RestoreDefaults() {
     envelope_5ms->setChecked(true);
     frequency_in_packet->setChecked(true);
     crisp_notes->setChecked(true);
-    bt_level->setCurrentIndex(1);
+    bt_level->setCurrentIndex(2);
     bt_after_input->setChecked(true);
     bt_fast->setChecked(true);
     bt_crisp_notes->setChecked(true);
@@ -436,6 +439,8 @@ void ConfigureHdRumble::UpdateEnabledState() {
     // The extra wired cards only run on top of the 5 ms envelope
     frequency_in_packet->setEnabled(envelope_5ms->isChecked());
     crisp_notes->setEnabled(envelope_5ms->isChecked());
+    // RenHDrum runs the Bluetooth 5 ms envelope at level 3 only
+    bt_fast->setEnabled(bt_level->currentData().toInt() == 3);
     ds_volume_slider->setEnabled(ds_enabled->isChecked());
     ds_volume->setEnabled(ds_enabled->isChecked());
     ds_crisp_notes->setEnabled(ds_enabled->isChecked());
