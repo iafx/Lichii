@@ -188,7 +188,7 @@ struct UserSettings {
     bool envelope_5ms{true};
     bool frequency_in_packet{true};
     bool crisp_notes{true};
-    int bluetooth_level{2};
+    int bluetooth_level{3};
     bool bt_after_input{true};
     bool bt_fast{true};
     bool bt_crisp_notes{true};
