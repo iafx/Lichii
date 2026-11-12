@@ -1420,6 +1420,19 @@ private:
     // mutex) before the HID handle is closed. The game's vibration reaches us only when it changes,
     // so the last one keeps playing for up to SWITCH2_STALE_US, then fades out (a paused or stalled
     // game goes quiet). Amplitudes glide over 3 ms and phases run on, so changes do not click.
+    //
+    // The controller plays the samples on its own clock and keeps what piles up: measured on a
+    // dongle, its clock ran ~28 ppm slower than the PC's and, with an unbroken stream, the delay
+    // grew 17 ms every 10 minutes with no limit (88 -> 112 ms in 15 min). When it runs dry it
+    // starts again with its ~80 ms of buffer, so in a silence a few reports are left out once a
+    // second (GRIP_DRAIN_MS) and the delay stays put (flat over 15 min). A vibration that never
+    // stops loses one report every GRIP_FORCE_DRAIN_NS instead; the wave is not advanced for it,
+    // so nothing is cut, it only plays that much sooner.
+    static constexpr int GRIP_DRAIN_MS = 23;
+    static constexpr Uint64 GRIP_QUIET_NS = 50'000'000ULL;
+    static constexpr Uint64 GRIP_DRAIN_EVERY_NS = 1'000'000'000ULL;
+    static constexpr Uint64 GRIP_FORCE_DRAIN_NS = 240'000'000'000ULL;
+
     void SteamGripLoop() {
         Common::SetCurrentThreadName("SteamGrips");
         const int rate = grip_rate;
@@ -1434,6 +1447,10 @@ private:
         std::array<std::array<int, 31>, 2> pcm{};
         Uint64 next = SDL_GetTicksNS();
         int fails_in_row = 0;
+        const int drain_reports = (std::max)(1, (rate * GRIP_DRAIN_MS / 1000 + n - 1) / n);
+        Uint64 last_drain = next;
+        Uint64 quiet_since = 0; // 0: not quiet
+        int drain_left = 0;
         while (grip_audio_running.load(std::memory_order_relaxed)) {
             GripAudioTarget t;
             {
@@ -1444,22 +1461,61 @@ private:
                                        std::chrono::steady_clock::now().time_since_epoch())
                                        .count(); // the clock of the game's vibration timestamps
             const bool fresh = t.last_game_us != 0 && now_us - t.last_game_us < SWITCH2_STALE_US;
+            std::array<std::array<f32, 2>, 2> target{}; // [grip][band]
+            bool quiet = true;
             for (size_t g = 0; g < 2; ++g) {
                 const std::array<GripBand, 2> bands{t.low[g], t.high[g]};
                 const std::array<f32, 2> level =
                     DualSenseLevels(fresh ? std::clamp(bands[0].amplitude, 0.0f, 1.0f) : 0.0f,
                                     fresh ? std::clamp(bands[1].amplitude, 0.0f, 1.0f) : 0.0f,
                                     onset_us[g], now_us);
-                // calibracion_agarres.txt: what the grip needs at each frequency to feel like the
-                // DualSense getting the same level
-                const std::array<f32, 2> gain{CalibrationGain(grip_calibration, bands[0].frequency),
-                                              CalibrationGain(grip_calibration, bands[1].frequency)};
+                for (size_t b = 0; b < 2; ++b) {
+                    // calibracion_agarres.txt: what the grip needs at each frequency to feel like
+                    // the DualSense getting the same level
+                    target[g][b] = level[b] * CalibrationGain(grip_calibration, bands[b].frequency);
+                    quiet = quiet && target[g][b] < 1e-4f && amp[g][b] < 1e-3f;
+                }
+            }
+
+            // Leave this report out? (see GRIP_DRAIN_MS)
+            const Uint64 tick = SDL_GetTicksNS();
+            bool skip = false;
+            if (!quiet) {
+                quiet_since = 0;
+                drain_left = 0;
+                if (tick - last_drain >= GRIP_FORCE_DRAIN_NS) {
+                    skip = true;
+                    last_drain = tick;
+                }
+            } else {
+                if (quiet_since == 0) {
+                    quiet_since = tick;
+                }
+                if (drain_left > 0) {
+                    skip = true;
+                    --drain_left;
+                } else if (tick - quiet_since >= GRIP_QUIET_NS && tick - last_drain >= GRIP_DRAIN_EVERY_NS) {
+                    skip = true;
+                    drain_left = drain_reports - 1;
+                    last_drain = tick;
+                }
+            }
+            if (skip) {
+                next += period_ns;
+                const Uint64 now = SDL_GetTicksNS();
+                if (next > now) {
+                    SDL_DelayPrecise(next - now);
+                }
+                continue;
+            }
+
+            for (size_t g = 0; g < 2; ++g) {
                 for (int i = 0; i < n; ++i) {
                     f32 v = 0.0f;
                     for (size_t b = 0; b < 2; ++b) {
-                        const f32 target = level[b] * gain[b];
-                        amp[g][b] += (target - amp[g][b]) * glide;
-                        const f32 step = two_pi * bands[b].frequency / static_cast<f32>(rate);
+                        amp[g][b] += (target[g][b] - amp[g][b]) * glide;
+                        const f32 hz = b == 0 ? t.low[g].frequency : t.high[g].frequency;
+                        const f32 step = two_pi * hz / static_cast<f32>(rate);
                         phase[g][b] = std::fmod(phase[g][b] + step, two_pi);
                         v += amp[g][b] * std::sin(phase[g][b]);
                     }
