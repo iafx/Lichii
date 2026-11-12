@@ -35,9 +35,10 @@ QLabel* MakeNote(const QString& text) {
 
 ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
     setWindowTitle(tr("HD Rumble"));
-    setMinimumSize(420, 200);
+    setMinimumSize(460, 200);
 
     auto* root = new QVBoxLayout(this);
+    root->setSpacing(10);
 
     // Header: master switch
     auto* header = new QHBoxLayout;
@@ -58,15 +59,39 @@ ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
         root->addWidget(missing);
     }
 
-    // Which controller is attached right now
+    // Supported controllers, the one attached right now marked "(connected)". DualSense and Xbox
+    // have their own switch; the Switch controllers follow the master switch.
     const int connected = InputCommon::GetRenHDrumConnectedKind();
     {
-        const QString kinds[] = {tr("Switch Controller"), tr("DualSense"), tr("Xbox")};
-        auto* status = new QLabel(connected >= 0 && connected < 3
-                                      ? tr("Connected controller: %1").arg(kinds[connected])
-                                      : tr("No controller connected."));
-        status->setStyleSheet(QStringLiteral("color: palette(mid);"));
-        root->addWidget(status);
+        const auto row = [&](int kind, const QString& name, const QString& note,
+                             QCheckBox** box) {
+            const QString text = connected == kind ? tr("%1 (connected)").arg(name) : name;
+            auto* card = new QGroupBox;
+            auto* col = new QVBoxLayout(card);
+            col->setSpacing(4);
+            if (box) {
+                *box = new QCheckBox(text);
+                col->addWidget(*box);
+            } else {
+                auto* label = new QLabel(text);
+                label->setStyleSheet(QStringLiteral("font-weight: bold;"));
+                col->addWidget(label);
+            }
+            // Readable text in the theme's own colour, indented under the name / check box
+            auto* label = new QLabel(note);
+            label->setWordWrap(true);
+            label->setContentsMargins(box ? 26 : 0, 0, 0, 0);
+            col->addWidget(label);
+            root->addWidget(card);
+        };
+        row(0, tr("Switch Pro Controller / Joy-Con"),
+            tr("HD Rumble with full detail, wired (USB) or Bluetooth. Follows the switch above."),
+            nullptr);
+        row(1, tr("DualSense / DualSense Edge"),
+            tr("Haptic voice coils, wired (USB) or Bluetooth. Off: the standard rumble."),
+            &ds_simple);
+        row(2, tr("Xbox and Xbox-style controllers"),
+            tr("RenHDrum's Xbox rumble. Off: the emulator's standard rumble."), &xbox_simple);
     }
 
     // Tuning widgets: all still built, but shown only when hd_rumble_advanced is set by hand in
@@ -164,6 +189,11 @@ ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
     connect(envelope_5ms, &QCheckBox::toggled, this, &ConfigureHdRumble::UpdateEnabledState);
 
     LoadConfiguration();
+    // The two per-controller switches in the simple view mirror the ones in the (hidden) pages
+    ds_simple->setChecked(ds_enabled->isChecked());
+    xbox_simple->setChecked(xbox_enabled->isChecked());
+    connect(ds_simple, &QCheckBox::toggled, ds_enabled, &QCheckBox::setChecked);
+    connect(xbox_simple, &QCheckBox::toggled, xbox_enabled, &QCheckBox::setChecked);
 }
 
 ConfigureHdRumble::~ConfigureHdRumble() = default;
@@ -401,6 +431,8 @@ void ConfigureHdRumble::UpdateEnabledState() {
     const bool on = hd_enabled->isChecked();
     pages->setEnabled(on);
     page_list->setEnabled(on);
+    ds_simple->setEnabled(on);
+    xbox_simple->setEnabled(on);
     // The extra wired cards only run on top of the 5 ms envelope
     frequency_in_packet->setEnabled(envelope_5ms->isChecked());
     crisp_notes->setEnabled(envelope_5ms->isChecked());
@@ -423,6 +455,8 @@ void ConfigureHdRumble::ApplyConfiguration() {
     auto& s = Settings::values;
     const bool on = hd_enabled->isChecked();
     s.hd_rumble_enabled.SetValue(on);
+    s.dualsense_haptics_enabled.SetValue(ds_enabled->isChecked());
+    s.xbox_rumble_enabled.SetValue(xbox_enabled->isChecked());
     if (!advanced) {
         return; // tuning values are not shown, leave them as they are
     }

@@ -36,6 +36,8 @@ private:
 
     QCheckBox* hd_enabled{};
     bool advanced{};
+    QCheckBox* ds_simple{};
+    QCheckBox* xbox_simple{};
     QSlider* gain_slider{};
     QSpinBox* gain{};
     QSlider* boost_slider{};
