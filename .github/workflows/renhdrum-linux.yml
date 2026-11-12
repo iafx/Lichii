@@ -164,14 +164,12 @@ jobs:
       - name: Package tar.gz
         run: |
           set -euo pipefail
-          # libnxformat.so: the .nx game archive reader lichii loads, shipped beside it as in
-          # Lichii's own release
-          test -f build/release/bin/libnxformat.so
+          # (nxformat, the .nx game archive reader, is linked into lichii statically: nothing to ship)
           strip build/release/bin/lichii build/release/bin/eden-cli
           cp _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
           cp _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
           tar -czf lichii-renhdrum-${PLATFORM}.tar.gz -C build/release/bin \
-            lichii eden-cli nx2_switches.txt libnxformat.so \
+            lichii eden-cli nx2_switches.txt \
             RENHDRUM-LICENSE-MIT.txt RENHDRUM-LICENSE-APACHE.txt
 
       # Same AppImage as Lichii's own releases: linuxdeploy bundles everything but the base system
