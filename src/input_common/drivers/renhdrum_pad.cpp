@@ -135,8 +135,11 @@ bool EnsureAudioForHaptics() {
 void ApplyNx2Mode(const RenHDrumApi& api) {
     static std::atomic<int> applied{0};
     const int mode = Settings::values.nx2_active_mode.load(std::memory_order_relaxed);
-    if (applied.exchange(mode, std::memory_order_relaxed) != mode && api.set_nx2_mode) {
-        api.set_nx2_mode(mode);
+    if (applied.exchange(mode, std::memory_order_relaxed) != mode) {
+        LOG_INFO(Input, "RenHDrum: Switch 2 rumble mode {}", mode);
+        if (api.set_nx2_mode) {
+            api.set_nx2_mode(mode);
+        }
     }
 }
 
@@ -284,6 +287,7 @@ struct RenHDrumPad::Impl {
     bool audio_opening{};
     int audio_attempts{};
     std::int64_t audio_next_us{};
+    bool stop_sdl_rumble{}; // haptics just switched on: SDL rumble would keep audio haptics off
     UserSettings user{};
 
     RenHdcXboxRumble* xbox{};
@@ -406,6 +410,10 @@ struct RenHDrumPad::Impl {
         }
         const UserSettings old = user;
         user = now;
+        if (dsp && ((!old.dualsense_enabled && now.dualsense_enabled) ||
+                    (!old.hd_enabled && now.hd_enabled))) {
+            stop_sdl_rumble = true;
+        }
         if (dsp && (old.dualsense_volume != now.dualsense_volume ||
                     old.dualsense_crisp_notes != now.dualsense_crisp_notes)) {
             // The audio callback runs with the stream locked, so it never sees a freed DSP. The
@@ -434,6 +442,7 @@ struct RenHDrumPad::Impl {
     void OpenDualSenseAudio() {
         SDL_Joystick* js = nullptr;
         SDL_Gamepad* gp = nullptr;
+        bool last_quick_attempt = false;
         {
             std::scoped_lock lock{mutex};
             if (!dsp || !joystick || audio_stream || audio_opening) {
@@ -444,7 +453,11 @@ struct RenHDrumPad::Impl {
                 audio_attempts = DualSenseAudioMaxAttempts;
             } else {
                 audio_opening = true;
-                ++audio_attempts;
+                // Past the quick attempts Tick keeps trying every 5 s; the count stays capped
+                if (audio_attempts < DualSenseAudioMaxAttempts &&
+                    ++audio_attempts == DualSenseAudioMaxAttempts) {
+                    last_quick_attempt = true;
+                }
             }
             js = joystick;
             gp = gamepad;
@@ -484,6 +497,10 @@ struct RenHDrumPad::Impl {
             // No device yet, or shut down while opening
             if (stream) {
                 SDL_DestroyAudioStream(stream);
+            }
+            if (last_quick_attempt) {
+                LOG_INFO(Input, "RenHDrum: DualSense speaker not found yet, standard rumble until "
+                                "it appears");
             }
         }
         if (opened) {
@@ -850,6 +867,7 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
                           const Common::Input::VibrationStatus& status) {
     Impl::SettingsChange change{};
     SDL_Joystick* joystick = nullptr;
+    bool stop_sdl_rumble = false;
     bool handled = false;
     bool engine_sample = false;
     bool send_direct = false;
@@ -863,6 +881,7 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
         }
         joystick = impl->joystick;
         change = impl->RefreshUserSettings();
+        stop_sdl_rumble = std::exchange(impl->stop_sdl_rumble, false) && impl->audio_stream;
         const auto& u = impl->user;
         const auto& api = Api();
         ApplyNx2Mode(api);
@@ -971,6 +990,10 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
             }
         }
     }
+    if (stop_sdl_rumble) {
+        // Same one-off stop as after opening the speaker (OpenDualSenseAudio)
+        SDL_RumbleJoystick(joystick, 0, 0, 0);
+    }
     if (send_direct) {
         // A stop always arrives as a zero; the duration only guards a lost one
         SDL_RumbleJoystick(joystick, direct[0], direct[1], 2000);
@@ -1009,9 +1032,14 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
             return;
         }
         joystick = impl->joystick;
+        // Bluetooth tries once (it sets the count to the max); wired keeps looking, slower after
+        // the quick attempts.
         if (impl->dsp && !impl->audio_stream && !impl->audio_opening &&
-            impl->audio_attempts < DualSenseAudioMaxAttempts && now_us >= impl->audio_next_us) {
-            impl->audio_next_us = now_us + 2'000'000;
+            (!impl->is_bluetooth || impl->audio_attempts < DualSenseAudioMaxAttempts) &&
+            now_us >= impl->audio_next_us) {
+            impl->audio_next_us =
+                now_us +
+                (impl->audio_attempts < DualSenseAudioMaxAttempts ? 2'000'000 : 5'000'000);
             open_audio = true;
         }
         send = impl->engine && Api().engine_tick(impl->engine, now_us, packet.data()) == 1;
