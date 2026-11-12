@@ -8,6 +8,7 @@
 class QCheckBox;
 class QComboBox;
 class QGroupBox;
+class QLabel;
 class QListWidget;
 class QSlider;
 class QSpinBox;
@@ -34,6 +35,7 @@ private:
     void UpdateEnabledState();
 
     QCheckBox* hd_enabled{};
+    bool advanced{};
     QSlider* gain_slider{};
     QSpinBox* gain{};
     QSlider* boost_slider{};
