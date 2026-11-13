@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
@@ -18,11 +17,6 @@
 #include "common/uuid.h"
 
 namespace Common::Input {
-
-// The rumble mode the game sends with: 2 for Switch 2 games (hid command 214 with mode 2), 0 for
-// the classic commands. Drivers that translate Switch 2 rumble differently read it (RenHDrum's
-// Switch 2 presets, renhdrum_set_nx2_mode).
-inline std::atomic<int> nx2_vibration_mode{0};
 
 // Type of data that is expected to receive or send
 enum class InputType {

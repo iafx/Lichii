@@ -940,7 +940,7 @@ struct Values {
                                               Category::Controls};
     SwitchableSetting<bool> enable_accurate_vibrations{linkage, false, "enable_accurate_vibrations",
                                                        Category::Controls};
-    // RenHDrum HD Rumble (Configure Vibration > HD Rumble)
+    // HD Rumble of the Valve pads and the Switch 2 Pro Controller (Configure Vibration > HD Rumble)
     // Boost for quiet and medium effects, in percent: 100 = what the game asks for, up to 400
     Setting<int> hd_rumble_boost{linkage, 100, "hd_rumble_boost", Category::Controls};
     // Steam Deck (one tone per trackpad motor): play the high band pulsed at the low band's

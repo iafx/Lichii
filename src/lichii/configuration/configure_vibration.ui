@@ -549,7 +549,7 @@
       <item row="0" column="1">
        <widget class="QSpinBox" name="spinHdRumbleBoost">
         <property name="toolTip">
-         <string>Makes quiet and medium HD Rumble effects stronger. 100% sends what the game asks for; strong effects stay at the controller's maximum.</string>
+         <string>Makes quiet and medium HD Rumble effects stronger on the Steam Controller, the Steam Deck and the Switch 2 Pro Controller / Joy-Con 2. 100% sends what the game asks for; strong effects stay at the controller's maximum.</string>
         </property>
         <property name="suffix">
          <string>%</string>

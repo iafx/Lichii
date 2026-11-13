@@ -152,8 +152,9 @@ if(ENABLE_CUBEB)
     endif()
 endif()
 
-# RenHDrum needs the SDL_HDRumble* entry points added by .patch/sdl3, so SDL3 is always built from
-# source with those patches and linked statically (the prebuilt and system SDL3 do not have them).
+# The HD rumble of the Valve pads and the Switch 2 Pro Controller needs the haptic effects added by
+# .patch/sdl3, so SDL3 is always built from source with those patches and linked statically (the
+# prebuilt and system SDL3 do not have them).
 if (NOT ANDROID)
     set(LICHII_USE_BUNDLED_SDL3 OFF)
     set(SDL3_FORCE_BUNDLED ON CACHE BOOL "" FORCE)

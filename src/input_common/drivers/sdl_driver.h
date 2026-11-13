@@ -13,7 +13,6 @@
 #include "common/container/unordered_map.h"
 
 #include <SDL3/SDL.h>
-#include <renhdrum.h>
 
 #include "common/common_types.h"
 #include "common/threadsafe_queue.h"

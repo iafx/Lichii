@@ -263,8 +263,6 @@
         "min_version": "3.2.10",
         "package": "SDL3",
         "patches": [
-            "0001-hdrumble.patch",
-            "0002-hdrumble-idle-write.patch",
             "0003-steam-triton-haptic-effects.patch",
             "0004-steam-deck-haptic-effects.patch",
             "0005-switch2-hd-rumble-effect.patch"

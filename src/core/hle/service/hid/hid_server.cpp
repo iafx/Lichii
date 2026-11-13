@@ -32,7 +32,6 @@
 #include "hid_core/resources/debug_pad/debug_pad.h"
 #include "hid_core/resources/keyboard/keyboard.h"
 #include "hid_core/resources/mouse/mouse.h"
-#include "common/input.h"
 #include "hid_core/resources/npad/npad.h"
 #include "hid_core/resources/npad/npad_types.h"
 #include "hid_core/resources/npad/npad_vibration.h"
@@ -960,7 +959,6 @@ Result IHidServer::SendVibrationValue(Core::HID::VibrationDeviceHandle vibration
               vibration_device_handle.npad_type, vibration_device_handle.npad_id,
               vibration_device_handle.device_index, aruid.pid);
 
-    Common::Input::nx2_vibration_mode.store(0, std::memory_order_relaxed);
     GetResourceManager()->SendVibrationValue(aruid.pid, vibration_device_handle, vibration_value);
     R_SUCCEED()
 }
@@ -1026,7 +1024,6 @@ Result IHidServer::SendVibrationValues(
 
     R_UNLESS(vibration_handles.size() == vibration_values.size(), ResultVibrationArraySizeMismatch);
 
-    Common::Input::nx2_vibration_mode.store(0, std::memory_order_relaxed);
     for (std::size_t i = 0; i < vibration_handles.size(); i++) {
         R_TRY(GetResourceManager()->SendVibrationValue(aruid.pid, vibration_handles[i],
                                                        vibration_values[i]));
@@ -1125,9 +1122,6 @@ Result IHidServer::SendNx2VibrationValues(
     InArray<Core::HID::VibrationDeviceHandle, BufferAttr_HipcPointer> vibration_handles,
     InArray<Core::HID::VibrationValue, BufferAttr_HipcPointer> vibration_values) {
     LOG_DEBUG(Service_HID, "called, unknown={}, applet_resource_user_id={}", unknown, aruid.pid);
-
-    // The first argument is the rumble mode: 2 in Switch 2 games
-    Common::Input::nx2_vibration_mode.store(unknown == 2 ? 2 : 0, std::memory_order_relaxed);
 
     // Unlike 206 this never fails: rumble is best effort and the command is only known from
     // captures, so an unexpected handle or layout shouldn't return an error a game may treat as

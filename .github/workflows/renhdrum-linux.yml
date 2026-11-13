@@ -1,6 +1,6 @@
 name: lichii-renhdrum-linux
 
-# Lichii (nx2) + RenHDrum v0.3.0 HD Rumble, Linux x86_64: AppImage (self-contained, glibc 2.39+:
+# Lichii (nx2) + our HD Rumble (Steam Controller, Steam Deck, Switch 2 Pro Controller), Linux x86_64: AppImage (self-contained, glibc 2.39+:
 # SteamOS 3.6+, Ubuntu 24.04, Fedora 40, Arch) and a tar.gz (needs Qt 6 installed).
 # Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
 # By default it is the PGO build, as Lichii's linux-x86_64-pgo release: clang from apt.llvm.org
@@ -8,9 +8,6 @@ name: lichii-renhdrum-linux
 on:
   workflow_dispatch:
     inputs:
-      renhdrum_ref:
-        description: RenHDrum tag or commit to build
-        default: v0.3.0
       pgo:
         description: PGO build (clang, eglantine.profdata)
         type: boolean
@@ -24,10 +21,9 @@ permissions:
 
 jobs:
   linux:
-    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'linux-x86_64-pgo' || 'linux-x86_64' }} + RenHDrum
+    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'linux-x86_64-pgo' || 'linux-x86_64' }} + HD Rumble
     runs-on: ubuntu-24.04
     env:
-      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.3.0' }}
       PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
       PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'linux-x86_64-pgo' || 'linux-x86_64' }}
       PROFILE: eglantine.profdata
@@ -38,21 +34,6 @@ jobs:
     steps:
       - name: Check out Lichii
         uses: actions/checkout@v5
-
-      - name: Check out RenHDrum
-        uses: actions/checkout@v5
-        with:
-          repository: trzz1214/RenHDrum
-          ref: ${{ env.RENHDRUM_REF }}
-          path: _renhdrum
-
-      # librenhdrum.a in _renhdrum/target/release, linked statically
-      - name: Build RenHDrum
-        working-directory: _renhdrum
-        run: |
-          set -euo pipefail
-          cargo build --release
-          ls -la target/release/librenhdrum.a
 
       # Lichii's own Linux packages, plus what SDL3 needs to build from source (it is always built
       # with the HD Rumble patches): X11, Wayland, libdecor, D-Bus, PipeWire/PulseAudio/ALSA, udev.
@@ -138,7 +119,6 @@ jobs:
             "-DLICHII_BUILD_PLATFORM=$PLATFORM"
             -DUSE_DISCORD_PRESENCE=OFF
             -DUSE_CCACHE=ON
-            "-DRENHDRUM_DIR=$GITHUB_WORKSPACE/_renhdrum"
           )
           if [ "$PGO" = true ]; then
             # Same compiler and flags as Lichii's linux-x86_64-pgo release
@@ -166,11 +146,8 @@ jobs:
           set -euo pipefail
           # (nxformat, the .nx game archive reader, is linked into lichii statically: nothing to ship)
           strip build/release/bin/lichii build/release/bin/eden-cli
-          cp _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
-          cp _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
           tar -czf lichii-renhdrum-${PLATFORM}.tar.gz -C build/release/bin \
-            lichii eden-cli nx2_switches.txt \
-            RENHDRUM-LICENSE-MIT.txt RENHDRUM-LICENSE-APACHE.txt
+            lichii eden-cli nx2_switches.txt
 
       # Same AppImage as Lichii's own releases: linuxdeploy bundles everything but the base system
       # libraries (glibc, X11/Wayland client libraries, GPU driver, Vulkan loader).

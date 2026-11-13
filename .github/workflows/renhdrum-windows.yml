@@ -1,15 +1,12 @@
 name: lichii-renhdrum-windows
 
-# Lichii (nx2) + RenHDrum v0.3.0 HD Rumble / DualSense haptics, Windows x64.
+# Lichii (nx2) + our HD Rumble (Steam Controller, Steam Deck, Switch 2 Pro Controller), Windows x64.
 # Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum branch.
 # By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
 # and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
 on:
   workflow_dispatch:
     inputs:
-      renhdrum_ref:
-        description: RenHDrum tag or commit to build
-        default: v0.3.0
       pgo:
         description: PGO build (clang-cl, ThinLTO, lichii-windows.profdata)
         type: boolean
@@ -23,35 +20,17 @@ permissions:
 
 jobs:
   windows:
-    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + RenHDrum
+    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + HD Rumble
     runs-on: windows-2022
     env:
       SCCACHE_DIR: ${{ github.workspace }}/.sccache
       SCCACHE_CACHE_SIZE: 3G
-      RENHDRUM_REF: ${{ inputs.renhdrum_ref || 'v0.3.0' }}
       PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
       PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }}
       PROFILE: lichii-windows.profdata
     steps:
       - name: Check out Lichii
         uses: actions/checkout@v5
-
-      - name: Check out RenHDrum
-        uses: actions/checkout@v5
-        with:
-          repository: trzz1214/RenHDrum
-          ref: ${{ env.RENHDRUM_REF }}
-          path: _renhdrum
-
-      # renhdrum.dll + renhdrum.dll.lib (MSVC import library) in _renhdrum/target/release
-      - name: Build RenHDrum
-        shell: bash
-        working-directory: _renhdrum
-        run: |
-          set -euo pipefail
-          rustup default stable-x86_64-pc-windows-msvc
-          cargo build --release
-          ls -la target/release/renhdrum.dll target/release/renhdrum.dll.lib
 
       # libusb for SDL's Switch 2 controller driver (Switch 2 Pro Controller / Joy-Con 2 over USB):
       # without it SDL leaves that driver out on Windows. SDL loads libusb-1.0.dll at run time, so
@@ -143,7 +122,6 @@ jobs:
             -DLICHII_BUILD_TAG=renhdrum-${{ github.run_number }}
             "-DLICHII_BUILD_PLATFORM=$PLATFORM"
             -DUSE_DISCORD_PRESENCE=OFF
-            "-DRENHDRUM_DIR=$ws/_renhdrum"
             "-DLibUSB_LIBRARY=$ws/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
             "-DLibUSB_INCLUDE_PATH=$ws/_libusb/include"
             -DCMAKE_C_COMPILER_LAUNCHER=sccache
@@ -196,12 +174,10 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          foreach ($f in 'lichii.exe', 'eden-cli.exe', 'renhdrum.dll') {
+          foreach ($f in 'lichii.exe', 'eden-cli.exe') {
             if (-not (Test-Path "build/release/bin/$f")) { throw "build/release/bin/$f was not produced" }
           }
           windeployqt --release --no-translations build/release/bin/lichii.exe
-          Copy-Item _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
-          Copy-Item _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
           # libusb for the Switch 2 controllers (LGPL-2.1-or-later, loaded at run time by SDL)
           Copy-Item _libusb/VS2022/MS64/dll/libusb-1.0.dll build/release/bin/
           Copy-Item _libusb/README.txt build/release/bin/LIBUSB-README.txt

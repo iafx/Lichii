@@ -506,11 +506,3 @@ if (TARGET nxformat::static_nozstd)
     target_compile_definitions(lichii PRIVATE LICHII_NX_TOOLS)
 endif()
 create_target_directory_groups(lichii)
-
-# RenHDrum (HD Rumble / DualSense haptics) runs from renhdrum.dll on Windows
-if (WIN32 AND RENHDRUM_RUNTIME AND EXISTS "${RENHDRUM_RUNTIME}")
-    add_custom_command(TARGET lichii POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${RENHDRUM_RUNTIME}" "$<TARGET_FILE_DIR:lichii>/renhdrum.dll"
-        VERBATIM)
-endif()
