@@ -1,3 +1,26 @@
+diff --git a/src/joystick/hidapi/SDL_hidapi_rumble.c b/src/joystick/hidapi/SDL_hidapi_rumble.c
+index ef3fede..9ae3021 100644
+--- a/src/joystick/hidapi/SDL_hidapi_rumble.c
++++ b/src/joystick/hidapi/SDL_hidapi_rumble.c
+@@ -77,6 +77,9 @@ static int SDLCALL SDL_HIDAPI_RumbleThread(void *data)
+         SDL_UnlockMutex(SDL_HIDAPI_rumble_lock);
+ 
+         if (request) {
++            const int pause_setting = SDL_GetAtomicInt(&request->device->hd_pause_ms);
++            const Uint32 pause_ms = pause_setting > 0 ? (Uint32)pause_setting : 10;
++
+             SDL_LockMutex(request->device->dev_lock);
+             if (request->device->dev) {
+ #ifdef DEBUG_RUMBLE
+@@ -92,7 +95,7 @@ static int SDLCALL SDL_HIDAPI_RumbleThread(void *data)
+             SDL_free(request);
+ 
+             // Make sure we're not starving report reads when there's lots of rumble
+-            SDL_Delay(10);
++            SDL_Delay(pause_ms);
+         }
+     }
+     return 0;
 diff --git a/src/joystick/hidapi/SDL_hidapi_switch2.c b/src/joystick/hidapi/SDL_hidapi_switch2.c
 index 773405c..ed23f58 100644
 --- a/src/joystick/hidapi/SDL_hidapi_switch2.c
@@ -190,4 +213,17 @@ index 773405c..ed23f58 100644
 +    SDL_SetAtomicInt(&device->hd_pause_ms, 0);
      ctx->joystick = NULL;
  }
+ 
+diff --git a/src/joystick/hidapi/SDL_hidapijoystick_c.h b/src/joystick/hidapi/SDL_hidapijoystick_c.h
+index 6129441..13e37f0 100644
+--- a/src/joystick/hidapi/SDL_hidapijoystick_c.h
++++ b/src/joystick/hidapi/SDL_hidapijoystick_c.h
+@@ -102,6 +102,8 @@ typedef struct SDL_HIDAPI_Device
+     SDL_Mutex *dev_lock;
+     SDL_hid_device *dev;
+     SDL_AtomicInt rumble_pending;
++    // Pause after each rumble write, in ms (0 = SDL's 10 ms): the Switch 2 driver's HD rumble asks for less
++    SDL_AtomicInt hd_pause_ms;
+     int num_joysticks;
+     SDL_JoystickID *joysticks;
  
