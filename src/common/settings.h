@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2021 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
@@ -730,6 +729,14 @@ struct Values {
     SwitchableSetting<bool> mkw_dynamic_fps{linkage, false, "mkw_dynamic_fps",
                                             Category::RendererAdvanced};
 
+    // Hyrule Warriors: Age of Imprisonment: 30 FPS at normal game speed while 60 can't be held,
+    // or always (core/hle/service/nx2_frame_interval.h).
+    SwitchableSetting<bool> hyrule_dynamic_fps{linkage, false, "hyrule_dynamic_fps",
+                                               Category::RendererAdvanced, Specialization::Default,
+                                               true, true};
+    SwitchableSetting<bool> hyrule_30fps{linkage, false, "hyrule_30fps", Category::RendererAdvanced,
+                                         Specialization::Default, true, true};
+
     SwitchableSetting<bool> use_reactive_flushing{linkage,
 #ifdef __ANDROID__
                                                   false,
@@ -942,6 +949,16 @@ struct Values {
     // Steam Controller / Steam Deck trackpad tone gain in dB, -20 to +6 (default +6: the most the
     // firmware takes before its own limiting; the small trackpad actuators feel weak at 0 dB)
     Setting<int> steam_trackpad_gain_db{linkage, 6, "steam_trackpad_gain_db", Category::Controls};
+    // Only tested on Windows so far; on Linux (PipeWire) the haptics play through the speaker
+    Setting<bool> enable_dualsense_haptics{linkage,
+#ifdef _WIN32
+                                           true,
+#else
+                                           false,
+#endif
+                                           "enable_dualsense_haptics", Category::Controls};
+    Setting<bool> rumble_frequency_mapping{linkage, false, "rumble_frequency_mapping",
+                                           Category::Controls};
 
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};
     Setting<std::string> udp_input_servers{linkage, "127.0.0.1:26760", "udp_input_servers",
@@ -1079,6 +1096,25 @@ struct Values {
                                            Category::Network};
     SwitchableSetting<bool> airplane_mode{linkage, true, "airplane_mode", Category::Network};
     Setting<bool> lan_play{linkage, false, "lan_play", Category::Network};
+    Setting<bool> nextendo_enabled{linkage, false, "nextendo_enabled", Category::Network};
+    Setting<std::string> nextendo_server_ip{linkage, "51.178.29.194", "nextendo_server_ip",
+                                           Category::Network};
+    Setting<std::string> nextendo_nat_ip{linkage, "164.132.111.120", "nextendo_nat_ip",
+                                        Category::Network};
+    Setting<std::string> nextendo_client_id{linkage, "nxc_eHeSgpYwMkFV", "nextendo_client_id",
+                                           Category::Network};
+    // Host redirect to a server the user runs (core/internal_network/local_redirect.h). Off: the
+    // online_redirect_* values are ignored.
+    Setting<bool> online_service_redirect{linkage, false, "online_service_redirect",
+                                          Category::Network};
+    Setting<std::string> online_redirect_hosts{linkage, std::string(), "online_redirect_hosts",
+                                               Category::Network};
+    Setting<std::string> online_redirect_server{linkage, std::string(), "online_redirect_server",
+                                                Category::Network};
+    Setting<std::string> online_redirect_ca{linkage, std::string(), "online_redirect_ca",
+                                            Category::Network};
+    Setting<bool> online_redirect_loopback_only{linkage, false, "online_redirect_loopback_only",
+                                                Category::Network};
 
     // WebService
     Setting<std::string> web_api_url{linkage, "api.ynet-fun.xyz", "web_api_url",
@@ -1108,6 +1144,13 @@ struct NvidiaDlssRuntimeSettings {
 
 void RefreshNvidiaDlssRuntimeSettings();
 NvidiaDlssRuntimeSettings GetNvidiaDlssRuntimeSettings();
+
+/// The NVIDIA DLSS quality whose render scale Ocarina of Time's built-in patch applies when the
+/// game starts: Balanced, Performance or Ultra Performance with NVIDIA DLSS on, docked.
+std::optional<NvidiaDlssQuality> OcarinaDlssRenderScale();
+/// The quality whose render-scale patch the running game's main module got (none: unpatched).
+void SetAppliedOcarinaRenderScale(std::optional<NvidiaDlssQuality> quality);
+std::optional<NvidiaDlssQuality> AppliedOcarinaRenderScale();
 
 constexpr u32 MIN_FRAME_GEN_MULTIPLIER = 2;
 constexpr u32 MAX_FRAME_GEN_MULTIPLIER = 4;

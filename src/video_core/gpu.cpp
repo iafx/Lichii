@@ -1,15 +1,16 @@
 // SPDX-FileCopyrightText: Copyright 2026 Eden Emulator Project
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// SPDX-FileCopyrightText: Copyright 2018 yuzu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <list>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "common/assert.h"
@@ -42,6 +43,7 @@
 #include "video_core/memory_manager.h"
 #include "video_core/nx2.h"
 #include "video_core/nx2_async_readback.h"
+#include "video_core/nx2_backx.h"
 #include "video_core/nx2_profile.h"
 #include "video_core/renderer_base.h"
 #include "video_core/shader_notify.h"
@@ -113,6 +115,33 @@ struct GPU::Impl {
 
     /// Synchronizes CPU writes with Host GPU memory.
     void InvalidateGPUCache() {
+        // ~900 calls a frame, most with nothing collected: gather (applying_writes_mutex and two
+        // locks per core's manager) only when a manager shows a write. One collected after this
+        // check is gathered by the next call, as one collected just after the gather would be.
+        const auto managers = system.GetGPUDirtyMemoryManager();
+        const auto collects = [&managers] {
+            u64 sum = 0;
+            for (const Core::GPUDirtyMemoryManager& manager : managers) {
+                sum += manager.Collects();
+            }
+            return sum;
+        };
+        const u64 collects_before = VideoCommon::BackX::g_verify ? collects() : 0;
+        if (std::ranges::none_of(managers, &Core::GPUDirtyMemoryManager::MayHavePending)) {
+            if (VideoCommon::BackX::g_verify) {
+                const auto first_write = ApplyCollectedWrites();
+                VideoCommon::BackX::SkippedGather(first_write.has_value(),
+                                                  collects() != collects_before,
+                                                  first_write.value_or(std::pair<DAddr, u64>{}));
+            }
+            return;
+        }
+        ApplyCollectedWrites();
+    }
+
+    /// Gathers the CPU writes collected into GPU-written pages and applies them to the caches.
+    /// Returns the first of them, if there were some.
+    std::optional<std::pair<DAddr, u64>> ApplyCollectedWrites() {
         std::vector<std::pair<DAddr, u64>> writes;
         {
             // Gathered writes stay pending (ForEachPendingCpuWrite) until they are applied: a
@@ -123,7 +152,7 @@ struct GPU::Impl {
                 [&writes](PAddr address, size_t size) { writes.emplace_back(address, size); });
             system.GatherGPUDirtyMemory(callback_writes);
             if (writes.empty()) {
-                return;
+                return std::nullopt;
             }
             applying_writes.push_back(&writes);
         }
@@ -134,6 +163,7 @@ struct GPU::Impl {
             std::erase(applying_writes, &writes);
         };
         renderer->ReadRasterizer()->OnCacheInvalidations(writes);
+        return writes.front();
     }
 
     void ForEachPendingCpuWrite(const std::function<void(DAddr, size_t)>& callback) {
@@ -256,8 +286,11 @@ struct GPU::Impl {
         gpu_thread.SubmitList(channel, std::move(entries), is_async);
     }
 
+    // Queued without waiting, also with synchronous GPU: callers hold the nx2:gpu region, GPU
+    // memory registry or address space lock, which the GPU thread takes when work queued earlier
+    // writes into a lazily backed sparse region (BackSparseWrite).
     void RunInOrder(std::function<void()>&& func) {
-        gpu_thread.Run(std::move(func), is_async);
+        gpu_thread.Run(std::move(func), true);
     }
 
     void MapInOrder(GPUVAddr gpu_addr, u64 size, std::function<void()>&& func) {
@@ -267,7 +300,7 @@ struct GPU::Impl {
                 func();
                 pending_maps.Remove(id);
             },
-            is_async, true);
+            true, true);
     }
 
     bool IsMapPending(GPUVAddr gpu_addr, u64 size) const {
