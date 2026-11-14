@@ -265,6 +265,20 @@ int32_t renhdrum_dualsense_dsp_build_bt_report(
     uint8_t buffer_length,
     uint8_t *out_report142
 );
+/* Experimental: Steam Controller (2026) grips, report 0x88. Create with renhdrum_valve_grip_dsp_create,
+   then use renhdrum_dualsense_dsp_set_half_target and renhdrum_dualsense_dsp_destroy on the handle.
+   Returns 1 when the block carries vibration, 0 when silent, < 0 on error. out_report64: 64 bytes. */
+#define RENHDRUM_VALVE_GRIP_REPORT_SIZE 64
+#define RENHDRUM_VALVE_GRIP_FORMAT_MULAW_8K 8
+#define RENHDRUM_VALVE_GRIP_FORMAT_MULAW_4K 9
+#define RENHDRUM_VALVE_GRIP_PERIOD_NS_8K 3875000ULL
+#define RENHDRUM_VALVE_GRIP_PERIOD_NS_4K 7750000ULL
+RenHdcDualSenseDsp *renhdrum_valve_grip_dsp_create(int32_t volume_percent, bool crisp_notes);
+int32_t renhdrum_valve_grip_build_report(
+    RenHdcDualSenseDsp *dsp,
+    uint8_t format,
+    uint8_t *out_report64
+);
 int32_t renhdrum_dualsense_evaluate_triggers(
     uint64_t title_id,
     bool zl_held,
