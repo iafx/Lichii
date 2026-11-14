@@ -985,7 +985,7 @@ struct Values {
                                                 Category::Controls};
     Setting<bool> hd_rumble_crisp_notes{linkage, true, "hd_rumble_crisp_notes",
                                         Category::Controls};
-    Setting<int> hd_rumble_bluetooth_level{linkage, 3, "hd_rumble_bluetooth_level", Category::Controls};
+    Setting<int> hd_rumble_bluetooth_level{linkage, 4, "hd_rumble_bluetooth_level", Category::Controls};
     Setting<bool> hd_rumble_bt_after_input{linkage, true, "hd_rumble_bt_after_input",
                                            Category::Controls};
     Setting<bool> hd_rumble_bt_fast{linkage, true, "hd_rumble_bt_fast", Category::Controls};
