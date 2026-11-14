@@ -148,6 +148,7 @@ constexpr Uint16 SonyVendorId = 0x054C;
 constexpr Uint16 MicrosoftVendorId = 0x045E;
 constexpr std::array<Uint8, 10> NeutralPacket{0x10, 0, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40};
 constexpr int DualSenseAudioMaxAttempts = 10;
+constexpr int HdRumbleMaxInitialSendFails = 8;
 // SDL no-queue gap while the 5 ms envelope runs (Ryuhdr AmFmNoQueueGapMs)
 [[maybe_unused]] constexpr int NoQueueEnvelopeGapMs = 10;
 
@@ -275,6 +276,8 @@ std::atomic<int> xbox_official_no_triggers{};
 // output report 0x32 on a second handle to the pad. That thread never takes `mutex`; it holds
 // `bt_dsp_mutex` while it reads the DSP, and the DSP is replaced only under that lock too.
 struct RenHDrumPad::Impl {
+    Uint16 vid{};
+    Uint16 pid{};
     bool is_bluetooth{};
     int kind{-1};
 
@@ -282,6 +285,8 @@ struct RenHDrumPad::Impl {
     SDL_Joystick* joystick{};
     SDL_Gamepad* gamepad{};
     RenHdcEngine* engine{};
+    std::atomic<bool> engine_ever_sent{};
+    int engine_send_fails{};
     RenHdcDualSenseDsp* dsp{};
     SDL_AudioStream* audio_stream{};
     bool audio_opening{};
@@ -745,6 +750,8 @@ std::shared_ptr<RenHDrumPad> RenHDrumPad::Create(SDL_Joystick* joystick, SDL_Gam
     // Not shared yet: no other thread can reach `state` until it is returned.
     const auto& api = Api();
     auto state = std::make_unique<Impl>();
+    state->vid = vid;
+    state->pid = pid;
     state->joystick = joystick;
     state->gamepad = gamepad;
     state->is_bluetooth =
@@ -1100,7 +1107,30 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
         impl->OpenDualSenseAudio();
     }
     if (send) {
-        SDL_SendJoystickEffect(joystick, packet.data(), static_cast<int>(packet.size()));
+        if (SDL_SendJoystickEffect(joystick, packet.data(), static_cast<int>(packet.size()))) {
+            impl->engine_ever_sent.store(true, std::memory_order_relaxed);
+        } else if (!impl->engine_ever_sent.load(std::memory_order_relaxed)) {
+            bool drop_engine = false;
+            {
+                std::scoped_lock lock{impl->mutex};
+                if (impl->engine && !impl->engine_ever_sent.load(std::memory_order_relaxed) &&
+                    ++impl->engine_send_fails >= HdRumbleMaxInitialSendFails) {
+                    Api().engine_destroy(impl->engine);
+                    impl->engine = nullptr;
+                    if (impl->kind >= 0) {
+                        --connected_count[impl->kind];
+                        impl->kind = -1;
+                    }
+                    drop_engine = true;
+                }
+            }
+            if (drop_engine) {
+                LOG_WARNING(Input,
+                            "RenHDrum: SDL does not take HD Rumble packets for {:04X}:{:04X}, "
+                            "using the standard rumble",
+                            impl->vid, impl->pid);
+            }
+        }
     }
 }
 
