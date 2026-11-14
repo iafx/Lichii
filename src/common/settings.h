@@ -996,6 +996,12 @@ struct Values {
     Setting<int> dualsense_haptics_volume{linkage, 100, "dualsense_haptics_volume", Category::Controls};
     Setting<bool> dualsense_crisp_notes{linkage, true, "dualsense_crisp_notes",
                                         Category::Controls};
+    Setting<bool> switch_hd_rumble_enabled{linkage, true, "switch_hd_rumble_enabled",
+                                           Category::Controls};
+    Setting<bool> steam_hd_rumble_enabled{linkage, true, "steam_hd_rumble_enabled",
+                                          Category::Controls};
+    Setting<bool> hd_rumble_on_connect{linkage, true, "hd_rumble_on_connect",
+                                       Category::Controls};
     Setting<bool> xbox_rumble_enabled{linkage, true, "xbox_rumble_enabled", Category::Controls};
     Setting<int> xbox_motor_strength{linkage, 100, "xbox_motor_strength", Category::Controls};
     // 0: RenHDrum's four-motor mix, 1: direct (low band to the big motor, high band to the small)

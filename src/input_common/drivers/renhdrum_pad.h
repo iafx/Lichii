@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include <SDL3/SDL.h>
 
@@ -13,11 +15,27 @@
 
 namespace InputCommon {
 
+struct RenHDrumPadInfo {
+    std::string name;
+    std::string guid;
+    std::uint16_t vid{};
+    std::uint16_t pid{};
+    int kind{-1}; ///< 0 Switch, 1 DualSense, 2 Xbox style, 3 Steam Controller (2026)
+    bool is_bluetooth{};
+    bool xbox_triggers{};
+};
+
 /// True when the build includes RenHDrum support (ENABLE_RENHDRUM).
 bool IsRenHDrumBuilt();
 
 /// True when renhdrum.dll (librenhdrum.so / .dylib) was found and loaded. Loads it on first call.
 bool IsRenHDrumLoaded();
+
+/// Runtime version reported by renhdrum.dll (e.g. "0.4.0"), or "" when not loaded / older DLL.
+std::string GetRenHDrumVersionString();
+
+/// Snapshot of controllers currently driven by RenHDrum.
+std::vector<RenHDrumPadInfo> GetRenHDrumPads();
 
 /// Kind of the controller RenHDrum connected most recently and still drives: 0 Switch
 /// controller, 1 DualSense, 2 Xbox style, 3 Steam Controller (2026), or -1 when none.
