@@ -1175,13 +1175,21 @@ private:
     // grew 17 ms every 10 minutes with no limit (88 -> 112 ms in 15 min). When it runs dry it
     // starts again with its ~80 ms of buffer, so in a silence a few reports are left out once a
     // second (GRIP_DRAIN_MS) and the delay stays put (flat over 15 min). A vibration that never
-    // stops loses one report every GRIP_FORCE_DRAIN_PERIODS reports instead (~33 ppm, a little
-    // more than the drift: every ~4 min at 4 kHz, ~2 at 8 kHz); the wave is not advanced for it,
-    // so nothing is cut, it only plays that much sooner.
+    // stops loses one report every GRIP_FORCE_DRAIN_PERIODS reports instead (40 ppm; the drift
+    // measured 30-33 ppm on the cable, the dongle and Bluetooth alike, so this leaves a margin:
+    // every ~3 min at 4 kHz, ~1.6 at 8 kHz); the wave is not advanced for it, so nothing is cut,
+    // it only plays that much sooner.
+    //
+    // The controller can go silent with nothing failing: switched off and on behind the dongle,
+    // or the PC suspended and woken, the writes go through (or fail a few times and recover) and
+    // the input keeps coming, but it plays nothing until it gets 0x86 "on" again. Sending it again
+    // while it plays was measured harmless (no gap, the buffer is kept), so it goes out every
+    // GRIP_MODE_RESEND_NS, and at once after a stall (the PC was asleep).
     static constexpr int GRIP_DRAIN_MS = 23;
     static constexpr Uint64 GRIP_QUIET_NS = 50'000'000ULL;
     static constexpr Uint64 GRIP_DRAIN_EVERY_NS = 1'000'000'000ULL;
-    static constexpr Uint64 GRIP_FORCE_DRAIN_PERIODS = 30'303ULL;
+    static constexpr Uint64 GRIP_FORCE_DRAIN_PERIODS = 25'000ULL;
+    static constexpr Uint64 GRIP_MODE_RESEND_NS = 3'000'000'000ULL;
 
     void SteamGripLoop() {
         Common::SetCurrentThreadName("SteamGrips");
@@ -1200,6 +1208,7 @@ private:
         const int drain_reports = (std::max)(1, (rate * GRIP_DRAIN_MS / 1000 + n - 1) / n);
         const Uint64 force_drain_ns = period_ns * GRIP_FORCE_DRAIN_PERIODS;
         Uint64 last_drain = next;
+        Uint64 last_mode = next;
         Uint64 quiet_since = 0; // 0: not quiet
         int drain_left = 0;
         while (grip_audio_running.load(std::memory_order_relaxed)) {
@@ -1304,12 +1313,17 @@ private:
                             SDL_GetError());
                 break;
             }
+            if (tick - last_mode >= GRIP_MODE_RESEND_NS) {
+                SendGripAudioMode(2, grip_format); // see GRIP_MODE_RESEND_NS
+                last_mode = tick;
+            }
             next += period_ns;
             const Uint64 now = SDL_GetTicksNS();
             if (next > now) {
                 SDL_DelayPrecise(next - now);
             } else if (now - next > 100'000'000ULL) {
                 next = now; // stalled > 100 ms: resync instead of bursting
+                last_mode = 0; // and turn the audio on again with the next report
             }
         }
         grip_audio_running.store(false, std::memory_order_relaxed);
