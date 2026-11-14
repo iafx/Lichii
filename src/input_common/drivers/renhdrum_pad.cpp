@@ -277,7 +277,7 @@ float ShapeAmplitude(float amplitude, const UserSettings& u) {
 }
 
 // Controllers RenHDrum drives, per kind, for the settings dialog
-std::array<std::atomic<int>, 3> connected_count{};
+std::array<std::atomic<int>, 4> connected_count{};
 std::atomic<int> last_connected_kind{-1};
 // Connected Xbox-style controllers that expose trigger motors
 std::atomic<int> xbox_trigger_pads{};
@@ -999,6 +999,9 @@ std::shared_ptr<RenHDrumPad> RenHDrumPad::Create(SDL_Joystick* joystick, SDL_Gam
         }
         LOG_INFO(Input, "RenHDrum: Steam Controller {:04X}:{:04X} (experimental)", vid, pid);
         steam->StartSteamGrip(joystick, pid);
+        steam->kind = 3;
+        ++connected_count[steam->kind];
+        last_connected_kind = steam->kind;
         return std::shared_ptr<RenHDrumPad>(new RenHDrumPad(std::move(steam)));
     }
     const bool switch_pad = IsSwitchHdController(vid, pid);
