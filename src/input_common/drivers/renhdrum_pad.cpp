@@ -322,6 +322,10 @@ struct RenHDrumPad::Impl {
     SDL_hid_device* bt_hid{};
     std::thread bt_thread;
     std::atomic<bool> bt_running{};
+    std::atomic<bool> bt_warned{};
+    bool bt_unsupported{};
+    bool bt_starting{};
+    std::int64_t bt_next_us{};
 
     /// Engine settings from the user's choices (Ryuhdr 0.2.6's recommended mode by default).
     /// Caller holds the mutex.
@@ -472,7 +476,7 @@ struct RenHDrumPad::Impl {
                 return;
             }
             if (is_bluetooth) {
-                // No audio endpoint on Bluetooth: one try at the HID haptics, no retries
+                // No audio endpoint on Bluetooth: Create tries the HID haptics once, Tick restarts it
                 audio_attempts = DualSenseAudioMaxAttempts;
             } else {
                 audio_opening = true;
@@ -544,30 +548,37 @@ struct RenHDrumPad::Impl {
         if (!Api().dsp_build_bt_report) {
             LOG_INFO(Input, "RenHDrum: DualSense on Bluetooth needs RenHDrum 0.2.1 or newer, "
                             "using the standard rumble");
+            std::scoped_lock lock{mutex};
+            bt_unsupported = true;
             return;
         }
         const char* path = SDL_GetJoystickPath(js);
         if (!path || !*path) {
             LOG_INFO(Input, "RenHDrum: DualSense on Bluetooth has no HID path, using the "
                             "standard rumble");
+            std::scoped_lock lock{mutex};
+            bt_unsupported = true;
             return;
         }
         const std::string hid_path{path};
         SDL_hid_device* hid = SDL_hid_open_path(hid_path.c_str());
         if (!hid) {
-            LOG_WARNING(Input,
-                        "RenHDrum: could not open the DualSense HID path: {}, using the "
-                        "standard rumble",
-                        SDL_GetError());
+            if (!bt_warned.exchange(true)) {
+                LOG_WARNING(Input,
+                            "RenHDrum: could not open the DualSense HID path: {}, using the "
+                            "standard rumble",
+                            SDL_GetError());
+            }
             return;
         }
         {
             std::scoped_lock lock{mutex};
-            if (!joystick || !dsp || bt_hid) {
+            if (!joystick || !dsp || bt_hid || bt_thread.joinable()) {
                 SDL_hid_close(hid);
                 return;
             }
             bt_hid = hid;
+            bt_warned.store(false);
             bt_running.store(true);
             bt_thread = std::thread([this] { DualSenseBluetoothLoop(); });
         }
@@ -578,6 +589,35 @@ struct RenHDrumPad::Impl {
             SDL_RumbleJoystick(js, 0, 0, 0);
         }
         LOG_INFO(Input, "RenHDrum: DualSense haptics over Bluetooth (report 0x32)");
+    }
+
+    /// Joins a stopped Bluetooth sender thread, closes its HID handle and tries to start a new
+    /// one. Called without the mutex after Tick sets `bt_starting`.
+    void RestartDualSenseBluetooth() {
+        SDL_Joystick* js = nullptr;
+        SDL_Gamepad* gp = nullptr;
+        std::thread old_thread;
+        SDL_hid_device* old_hid = nullptr;
+        {
+            std::scoped_lock lock{mutex};
+            js = joystick;
+            gp = gamepad;
+            old_thread = std::move(bt_thread);
+            old_hid = std::exchange(bt_hid, nullptr);
+        }
+        if (old_thread.joinable()) {
+            old_thread.join();
+        }
+        if (old_hid) {
+            SDL_hid_close(old_hid);
+        }
+        if (js) {
+            StartDualSenseBluetooth(js, gp);
+        }
+        {
+            std::scoped_lock lock{mutex};
+            bt_starting = false;
+        }
     }
 
     /// Runs on `bt_thread`: one report every RENHDRUM_DS5_BT_PERIOD_NS while vibrating and for
@@ -615,10 +655,12 @@ struct RenHDrumPad::Impl {
                 }
             }
             if (fails_in_row >= MaxFailsInRow) {
-                LOG_WARNING(Input,
-                            "RenHDrum: DualSense Bluetooth writes failing ({}), using the "
-                            "standard rumble",
-                            SDL_GetError());
+                if (!bt_warned.exchange(true)) {
+                    LOG_WARNING(Input,
+                                "RenHDrum: DualSense Bluetooth writes failing ({}), using the "
+                                "standard rumble",
+                                SDL_GetError());
+                }
                 break;
             }
             if (next > now) {
@@ -1074,6 +1116,7 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
     std::array<Uint8, 10> packet{};
     SDL_Joystick* joystick = nullptr;
     bool open_audio = false;
+    bool restart_bt = false;
     bool send = false;
     bool send_xbox = false;
     bool triggers = false;
@@ -1098,6 +1141,12 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
                 now_us +
                 (impl->audio_attempts < DualSenseAudioMaxAttempts ? 2'000'000 : 5'000'000);
             open_audio = true;
+        }
+        if (impl->dsp && impl->is_bluetooth && !impl->bt_running.load() &&
+            !impl->bt_unsupported && !impl->bt_starting && now_us >= impl->bt_next_us) {
+            impl->bt_next_us = now_us + 10'000'000;
+            impl->bt_starting = true;
+            restart_bt = true;
         }
         send = impl->engine && Api().engine_tick(impl->engine, now_us, packet.data()) == 1;
         if (impl->kick_until_us != 0 && now_us >= impl->kick_until_us) {
@@ -1146,6 +1195,9 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
     }
     if (open_audio) {
         impl->OpenDualSenseAudio();
+    }
+    if (restart_bt) {
+        impl->RestartDualSenseBluetooth();
     }
     if (send) {
         if (SDL_SendJoystickEffect(joystick, packet.data(), static_cast<int>(packet.size()))) {
