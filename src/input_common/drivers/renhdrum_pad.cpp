@@ -1218,17 +1218,19 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
         }
         SDL_free(devices);
         if (!present) {
-            SDL_AudioStream* lost_stream = nullptr;
+            bool lost = false;
             {
                 std::scoped_lock lock{impl->mutex};
                 if (impl->audio_stream == check_audio_stream) {
-                    lost_stream = std::exchange(impl->audio_stream, nullptr);
+                    // Destroy under `mutex` like Release(): AudioCallback reads `dsp` without
+                    // taking `mutex`.
+                    SDL_DestroyAudioStream(std::exchange(impl->audio_stream, nullptr));
+                    impl->ReleaseAudioDevice();
                     impl->audio_attempts = DualSenseAudioMaxAttempts;
+                    lost = true;
                 }
             }
-            if (lost_stream) {
-                SDL_DestroyAudioStream(lost_stream);
-                impl->ReleaseAudioDevice();
+            if (lost) {
                 LOG_INFO(Input, "RenHDrum: DualSense speaker went away, standard rumble until "
                                 "it is back");
             }
