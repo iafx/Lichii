@@ -19,6 +19,7 @@
 #include "hid_core/hid_types.h"
 #include "input_common/drivers/keyboard.h"
 #include "input_common/drivers/mouse.h"
+#include "input_common/drivers/renhdrum_pad.h"
 #include "input_common/main.h"
 #include "qt_common/config/qt_config.h"
 #include "ui_configure_input_player.h"
@@ -26,6 +27,7 @@
 #include "lichii/configuration/configure_input_player.h"
 #include "lichii/configuration/configure_input_player_widget.h"
 #include "lichii/configuration/configure_mouse_panning.h"
+#include "lichii/configuration/hd_rumble_dialog.h"
 #include "lichii/configuration/input_profiles.h"
 #include "lichii/util/limitable_input_dialog.h"
 
@@ -320,6 +322,15 @@ ConfigureInputPlayer::ConfigureInputPlayer(QWidget* parent, std::size_t player_i
         emulated_controller->EnableConfiguration();
     }
     ui->setupUi(this);
+
+    if (InputCommon::IsRenHDrumBuilt()) {
+        auto* hd_rumble = new QPushButton(tr("HD Rumble..."), ui->controllerFrame);
+        hd_rumble->setToolTip(tr("HD Rumble settings, connected controllers, and rumble test."));
+        ui->verticalLayout_4->addStretch(1);
+        ui->verticalLayout_4->addWidget(hd_rumble, 0, Qt::AlignHCenter);
+        connect(hd_rumble, &QPushButton::clicked, this,
+                [this] { HdRumbleDialog(this, hid_core).exec(); });
+    }
 
     setFocusPolicy(Qt::ClickFocus);
 

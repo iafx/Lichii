@@ -7,7 +7,7 @@
 #include "ui_configure_vibration.h"
 #include "lichii/configuration/configure_vibration.h"
 #include "input_common/drivers/renhdrum_pad.h"
-#include "lichii/configuration/configure_hd_rumble.h"
+#include "lichii/configuration/hd_rumble_dialog.h"
 
 #include <QPushButton>
 
@@ -67,10 +67,8 @@ ConfigureVibration::ConfigureVibration(QWidget* parent, Core::HID::HIDCore& hid_
     hd_rumble_button->setToolTip(
         tr("HD Rumble for Pro Controller / Joy-Con and DualSense haptics (RenHDrum)."));
     connect(hd_rumble_button, &QPushButton::clicked, this, [this] {
-        ConfigureHdRumble dialog(this);
-        if (dialog.exec() == QDialog::Accepted) {
-            dialog.ApplyConfiguration();
-        }
+        HdRumbleDialog dialog(this, hid_core);
+        dialog.exec();
     });
     ui->verticalLayout->addWidget(hd_rumble_button);
     hd_rumble_button->setVisible(InputCommon::IsRenHDrumBuilt());

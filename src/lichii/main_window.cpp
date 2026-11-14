@@ -70,6 +70,8 @@
 #include "configuration/configure_network.h"
 #include "configuration/configure_per_game.h"
 #include "configuration/configure_tas.h"
+#include "configuration/hd_rumble_dialog.h"
+#include "input_common/drivers/renhdrum_pad.h"
 
 #include "util/clickable_label.h"
 #include "util/controller_navigation.h"
@@ -685,6 +687,11 @@ MainWindow::MainWindow(bool has_broken_vulkan)
     // so now we have to make this completely unnecessary call
     // to prevent the UI from blowing up.
     UpdateUITheme();
+
+    if (InputCommon::IsRenHDrumBuilt()) {
+        new RumbleOnConnect(
+            QtCommon::system->HIDCore(), [this] { return emulation_running; }, this);
+    }
 
     std::optional<Core::LaunchParams> launch;
     if (QStringList args = QApplication::arguments(); args.size() >= 2) {
