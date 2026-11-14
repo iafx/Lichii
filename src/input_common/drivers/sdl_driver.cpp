@@ -1297,8 +1297,11 @@ Common::Input::DriverResult SDLDriver::SetVibration(
         factor = 0.5f;
     }
 
-    // Amplitude for HD rumble needs no modification
-    if (joystick->HasHDRumble()) {
+    // Amplitude for HD rumble needs no modification, except Switch 2 Mode 2: those games send tiny
+    // raw values and rely on the console's amplifier, so the default curve stays as the fallback
+    // when RenHDrum does not take the vibration (HD Rumble off, DualSense speaker not open yet).
+    if (joystick->HasHDRumble() &&
+        Settings::values.nx2_active_mode.load(std::memory_order_relaxed) != 2) {
         factor = 1.0f;
     }
 
