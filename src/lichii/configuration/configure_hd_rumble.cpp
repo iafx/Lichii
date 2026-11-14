@@ -187,8 +187,6 @@ ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
     connect(xbox_mode, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &ConfigureHdRumble::UpdateEnabledState);
     connect(envelope_5ms, &QCheckBox::toggled, this, &ConfigureHdRumble::UpdateEnabledState);
-    connect(bt_level, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            &ConfigureHdRumble::UpdateEnabledState);
 
     LoadConfiguration();
     // The two per-controller switches in the simple view mirror the ones in the (hidden) pages
@@ -228,13 +226,18 @@ QWidget* ConfigureHdRumble::CreateSwitchPage() {
     bt_level->addItem(tr("1 - Stable (60 ms)"), 1);
     bt_level->addItem(tr("2 - Balanced (45 ms)"), 2);
     bt_level->addItem(tr("3 - Quality (35 ms)"), 3);
+    bt_level->addItem(tr("4 - Compatible (32 ms)"), 4);
     bt_level->setToolTip(tr("Lower levels send less often, which keeps input lag down on a busy "
                             "Bluetooth link."));
     bt_after_input = new QCheckBox(tr("Send right after an input report"));
-    bt_fast = new QCheckBox(tr("5 ms envelope while the link is idle"));
-    bt_fast->setToolTip(tr("Runs at level 3 only."));
+    bt_fast = new QCheckBox(tr("Detailed Bluetooth rumble (5 ms)"));
+    bt_fast->setToolTip(
+        tr("Most detailed. When off, or when SDL cannot do it, Compatible mode is used."));
     bt_crisp_notes = new QCheckBox(tr("Crisp notes"));
-    bt->addRow(tr("Level"), bt_level);
+    auto* bt_level_label = new QLabel(tr("Level"));
+    bt->addRow(bt_level_label, bt_level);
+    bt_level_label->setVisible(false);
+    bt_level->setVisible(false);
     bt->addRow(bt_after_input);
     bt->addRow(bt_fast);
     bt->addRow(bt_crisp_notes);
@@ -389,7 +392,7 @@ void ConfigureHdRumble::LoadConfiguration() {
     envelope_5ms->setChecked(s.hd_rumble_envelope_5ms.GetValue());
     frequency_in_packet->setChecked(s.hd_rumble_frequency_in_packet.GetValue());
     crisp_notes->setChecked(s.hd_rumble_crisp_notes.GetValue());
-    bt_level->setCurrentIndex(std::clamp(s.hd_rumble_bluetooth_level.GetValue(), 1, 3) - 1);
+    bt_level->setCurrentIndex(std::clamp(s.hd_rumble_bluetooth_level.GetValue(), 1, 4) - 1);
     bt_after_input->setChecked(s.hd_rumble_bt_after_input.GetValue());
     bt_fast->setChecked(s.hd_rumble_bt_fast.GetValue());
     bt_crisp_notes->setChecked(s.hd_rumble_bt_crisp_notes.GetValue());
@@ -414,7 +417,7 @@ void ConfigureHdRumble::RestoreDefaults() {
     envelope_5ms->setChecked(true);
     frequency_in_packet->setChecked(true);
     crisp_notes->setChecked(true);
-    bt_level->setCurrentIndex(2);
+    bt_level->setCurrentIndex(3);
     bt_after_input->setChecked(true);
     bt_fast->setChecked(true);
     bt_crisp_notes->setChecked(true);
@@ -439,8 +442,6 @@ void ConfigureHdRumble::UpdateEnabledState() {
     // The extra wired cards only run on top of the 5 ms envelope
     frequency_in_packet->setEnabled(envelope_5ms->isChecked());
     crisp_notes->setEnabled(envelope_5ms->isChecked());
-    // RenHDrum runs the Bluetooth 5 ms envelope at level 3 only
-    bt_fast->setEnabled(bt_level->currentData().toInt() == 3);
     ds_volume_slider->setEnabled(ds_enabled->isChecked());
     ds_volume->setEnabled(ds_enabled->isChecked());
     ds_crisp_notes->setEnabled(ds_enabled->isChecked());

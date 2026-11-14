@@ -188,7 +188,7 @@ struct UserSettings {
     bool envelope_5ms{true};
     bool frequency_in_packet{true};
     bool crisp_notes{true};
-    int bluetooth_level{3};
+    int bluetooth_level{4};
     bool bt_after_input{true};
     bool bt_fast{true};
     bool bt_crisp_notes{true};
@@ -221,7 +221,7 @@ UserSettings ReadUserSettings() {
         .envelope_5ms = pick(s.hd_rumble_envelope_5ms),
         .frequency_in_packet = pick(s.hd_rumble_frequency_in_packet),
         .crisp_notes = pick(s.hd_rumble_crisp_notes),
-        .bluetooth_level = std::clamp(pick(s.hd_rumble_bluetooth_level), 1, 3),
+        .bluetooth_level = std::clamp(pick(s.hd_rumble_bluetooth_level), 1, 4),
         .bt_after_input = pick(s.hd_rumble_bt_after_input),
         .bt_fast = pick(s.hd_rumble_bt_fast),
         .bt_crisp_notes = pick(s.hd_rumble_bt_crisp_notes),
@@ -382,11 +382,20 @@ struct RenHDrumPad::Impl {
             Api().engine_apply_settings(engine, &settings);
         }
         if (is_bluetooth) {
-            LOG_INFO(Input, "RenHDrum HD Rumble Bluetooth: level {}, {}{}", settings.bluetooth_level,
-                     settings.bt_fast          ? "5 ms envelope while SDL is idle"
-                     : settings.bt_after_input ? "written right after an input report"
-                                               : "clock based writes",
-                     settings.enabled && settings.bt_crisp_notes ? ", crisp notes" : "");
+            const std::string mode =
+                settings.bt_fast ? "Detailed (5 ms envelope while SDL is idle)"
+                : settings.bluetooth_level == 4
+                    ? "Compatible"
+                    : "legacy level " + std::to_string(settings.bluetooth_level);
+            LOG_INFO(Input, "RenHDrum HD Rumble Bluetooth: {}{}{}", mode,
+                     !settings.bt_fast && settings.bt_after_input
+                         ? ", written right after an input report"
+                     : !settings.bt_fast ? ", clock based writes"
+                                         : "",
+                     settings.enabled && settings.bt_crisp_notes &&
+                             (settings.bt_fast || settings.bluetooth_level != 4)
+                         ? ", crisp notes"
+                         : "");
         } else {
             const bool envelope = settings.usb_no_queue && settings.envelope_5ms;
             LOG_INFO(Input, "RenHDrum HD Rumble wired: {} ms, {}{}{}", settings.usb_interval_ms,
