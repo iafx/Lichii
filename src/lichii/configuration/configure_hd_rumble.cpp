@@ -92,6 +92,8 @@ ConfigureHdRumble::ConfigureHdRumble(QWidget* parent) : QDialog(parent) {
             &ds_simple);
         row(2, tr("Xbox and Xbox-style controllers"),
             tr("RenHDrum's Xbox rumble. Off: the emulator's standard rumble."), &xbox_simple);
+        row(3, tr("Steam Controller (2026): grips, experimental"),
+            tr("Both grip motors play HD Rumble. Follows the switch above."), nullptr);
     }
 
     // Tuning widgets: all still built, but shown only when hd_rumble_advanced is set by hand in

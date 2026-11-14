@@ -20,7 +20,7 @@ bool IsRenHDrumBuilt();
 bool IsRenHDrumLoaded();
 
 /// Kind of the controller RenHDrum connected most recently and still drives: 0 Switch
-/// controller, 1 DualSense, 2 Xbox style, or -1 when none.
+/// controller, 1 DualSense, 2 Xbox style, 3 Steam Controller (2026), or -1 when none.
 int GetRenHDrumConnectedKind();
 
 /// For connected Xbox-style controllers: 1 when one exposes trigger motors, 0 when none does,
