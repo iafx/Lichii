@@ -1,0 +1,222 @@
+name: lichii-renhdrum-0.4-windows
+
+# Official Lichii (nx2) + RenHDrum 0.4.0's eden-switch2 series (0001-0019), Windows x64, with
+# renhdrum.dll 0.4.0 built from its source and shipped next to lichii.exe. Nothing of our own HD
+# Rumble is in it: this is RenHDrum as its author publishes it, for testing it on Lichii.
+# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum-0.4 branch.
+# By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
+# and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
+on:
+  workflow_dispatch:
+    inputs:
+      pgo:
+        description: PGO build (clang-cl, ThinLTO, lichii-windows.profdata)
+        type: boolean
+        default: true
+  push:
+    branches:
+      - renhdrum-0.4
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + RenHDrum 0.4.0
+    runs-on: windows-2022
+    env:
+      SCCACHE_DIR: ${{ github.workspace }}/.sccache
+      SCCACHE_CACHE_SIZE: 3G
+      PGO: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'true' || 'false' }}
+      PLATFORM: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }}
+      PROFILE: lichii-windows.profdata
+    steps:
+      - name: Check out Lichii
+        uses: actions/checkout@v5
+
+      - name: Check out RenHDrum 0.4.0
+        uses: actions/checkout@v5
+        with:
+          repository: trzz1214/RenHDrum
+          ref: v0.4.0
+          path: _renhdrum
+
+      # renhdrum.dll: Rust, no dependencies; its .cargo/config.toml links the C runtime statically,
+      # so it is read from inside its folder
+      - name: Build renhdrum.dll
+        shell: bash
+        working-directory: _renhdrum
+        run: |
+          set -euo pipefail
+          cargo build --release
+          ls -la target/release/renhdrum.dll
+
+      # libusb for SDL's Switch 2 controller driver (Switch 2 Pro Controller / Joy-Con 2 over USB):
+      # without it SDL leaves that driver out on Windows. SDL loads libusb-1.0.dll at run time, so
+      # Lichii still starts without it; only those controllers need it.
+      - name: Get libusb
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/libusb.7z" \
+            https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.7z
+          echo "7fb1dfec805b97983763d7d0ae244320da12add1003d4249c96cc4d586398c79  $RUNNER_TEMP/libusb.7z" | sha256sum -c -
+          7z x -y -o_libusb "$RUNNER_TEMP/libusb.7z" > /dev/null
+          ls -la _libusb/include/libusb.h _libusb/VS2022/MS64/dll/libusb-1.0.dll _libusb/VS2022/MS64/dll/libusb-1.0.lib
+
+      - name: Set up MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # clang-cl compiles against the MSVC headers, libraries and SDK from the previous step; only
+      # the compiler, linker and archiver come from this LLVM (the version Lichii's release uses,
+      # which reads lichii-windows.profdata)
+      - name: Install LLVM
+        if: env.PGO == 'true'
+        shell: pwsh
+        run: ./tools/windows/install-llvm.ps1
+
+      - name: Check PGO profile
+        if: env.PGO == 'true'
+        shell: bash
+        run: test -s "$PROFILE"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtcharts
+          cache: true
+
+      - name: Install sccache
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'sccache.zip'
+          Invoke-WebRequest -OutFile $zip https://github.com/mozilla/sccache/releases/download/v0.19.0/sccache-v0.19.0-x86_64-pc-windows-msvc.zip
+          Expand-Archive $zip -DestinationPath (Join-Path $env:RUNNER_TEMP 'sccache')
+          $bin = (Get-ChildItem -Recurse -Filter sccache.exe (Join-Path $env:RUNNER_TEMP 'sccache')).DirectoryName
+          $bin | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Install Vulkan SDK
+        shell: pwsh
+        run: ./tools/windows/install-vulkan-sdk.ps1
+
+      - name: Restore CPM downloads
+        uses: actions/cache@v5
+        with:
+          path: .cache/cpm
+          key: cpm-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
+          restore-keys: |
+            cpm-renhdrum04-${{ env.PLATFORM }}-
+            cpm-${{ env.PLATFORM }}-v2-
+
+      - name: Restore compiler objects
+        uses: actions/cache@v5
+        with:
+          path: .sccache
+          # The profile's hash is in the key, so objects built against another profile never return
+          key: objects-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-${{ github.sha }}
+          restore-keys: |
+            objects-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-
+
+      # SDL3 is built from source with RenHDrum's .patch/sdl3-hdrumble (RENHDRUM_SDL_PATCHES is on
+      # by default with ENABLE_RENHDRUM, which turns the bundled SDL3 off)
+      - name: Configure
+        shell: bash
+        run: |
+          set -euo pipefail
+          ws="${GITHUB_WORKSPACE//\\//}"
+          args=(
+            -DCMAKE_BUILD_TYPE=Release
+            -DBUILD_TESTING=OFF
+            -DLICHII_TESTS=OFF
+            -DLICHII_CMD=ON
+            -DLICHII_ROOM=OFF
+            -DLICHII_ROOM_STANDALONE=OFF
+            -DLICHII_USE_BUNDLED_QT=OFF
+            -DENABLE_UPDATE_CHECKER=OFF
+            -DLICHII_BUILD_TAG=renhdrum-0.4.0-${{ github.run_number }}
+            -DENABLE_RENHDRUM=ON
+            -DRENHDRUM_DOWNLOAD=OFF
+            -DRENHDRUM_SDL_PATCHES=ON
+            "-DLICHII_BUILD_PLATFORM=$PLATFORM"
+            -DUSE_DISCORD_PRESENCE=OFF
+            "-DLibUSB_LIBRARY=$ws/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
+            "-DLibUSB_INCLUDE_PATH=$ws/_libusb/include"
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          )
+          if [ "$PGO" = true ]; then
+            # Same compiler and flags as Lichii's windows-x86_64-pgo release. A profile older than
+            # the source only warns: functions changed since training (ours included) lose their
+            # profile data and are optimized as in a plain ThinLTO build.
+            flags="-DWIN32 -D_WINDOWS -DNOMINMAX -flto=thin"
+            flags+=" -fprofile-use=$(cygpath -m "$PWD/$PROFILE")"
+            flags+=" -Wno-error=profile-instr-out-of-date -Wno-error=profile-instr-unprofiled"
+            flags+=" -Wno-error=backend-plugin"
+            args+=(
+              "-DCMAKE_C_COMPILER=$LLVM_ROOT/bin/clang-cl.exe"
+              "-DCMAKE_CXX_COMPILER=$LLVM_ROOT/bin/clang-cl.exe"
+              "-DCMAKE_LINKER=$LLVM_ROOT/bin/lld-link.exe"
+              "-DCMAKE_AR=$LLVM_ROOT/bin/llvm-lib.exe"
+              "-DCMAKE_C_FLAGS=$flags"
+              "-DCMAKE_CXX_FLAGS=-EHsc $flags"
+            )
+          fi
+          cmake -S . -B build/release -G Ninja "${args[@]}"
+
+      # Fails early if SDL did not pick libusb up (no Switch 2 controller driver)
+      - name: Check SDL has libusb
+        shell: bash
+        run: |
+          set -euo pipefail
+          config=$(grep -rl --include=SDL_build_config.h "SDL_JOYSTICK_HIDAPI" build/release | head -1)
+          echo "SDL config: $config"
+          grep -E "HAVE_LIBUSB|SDL_LIBUSB_DYNAMIC" "$config"
+          grep -q "^#define HAVE_LIBUSB 1" "$config"
+
+      - name: Build
+        shell: bash
+        run: |
+          sccache --zero-stats
+          cmake --build build/release --target lichii lichii-cmd --parallel
+          sccache --show-stats
+
+      # Never fails the job: when an earlier step failed the server was never started
+      - name: Stop sccache
+        if: always()
+        shell: pwsh
+        run: |
+          sccache --stop-server
+          exit 0
+
+      - name: Package
+        shell: pwsh
+        run: |
+          foreach ($f in 'lichii.exe', 'eden-cli.exe') {
+            if (-not (Test-Path "build/release/bin/$f")) { throw "build/release/bin/$f was not produced" }
+          }
+          windeployqt --release --no-translations build/release/bin/lichii.exe
+          # libusb for the Switch 2 controllers (LGPL-2.1-or-later, loaded at run time by SDL)
+          Copy-Item _libusb/VS2022/MS64/dll/libusb-1.0.dll build/release/bin/
+          Copy-Item _libusb/README.txt build/release/bin/LIBUSB-README.txt
+          Set-Content build/release/bin/LIBUSB-LICENSE.txt ("libusb-1.0.dll is libusb 1.0.30, licensed under " +
+            "the GNU Lesser General Public License 2.1 or later. Source code: " +
+            "https://github.com/libusb/libusb/releases/tag/v1.0.30")
+          # RenHDrum 0.4.0 (MIT OR Apache-2.0), loaded at run time; without it the standard rumble
+          Copy-Item _renhdrum/target/release/renhdrum.dll build/release/bin/
+          Copy-Item _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
+          Copy-Item _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
+          Get-ChildItem build/release/bin -Exclude *.pdb, *.ilk, *.lib, *.exp |
+            Compress-Archive -DestinationPath "lichii-renhdrum-0.4.0-$env:PLATFORM.zip"
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: lichii-renhdrum-0.4.0-${{ env.PLATFORM }}-${{ github.sha }}
+          path: lichii-renhdrum-0.4.0-${{ env.PLATFORM }}.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
