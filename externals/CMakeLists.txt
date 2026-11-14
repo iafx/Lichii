@@ -173,12 +173,20 @@ if (NOT LICHII_USE_BUNDLED_SDL3)
         set(SDL_FILE ON)
     endif()
 
+    # SDL finds libusb (its Switch 2 controller driver needs it) with find_package(LibUSB) and its
+    # own FindLibUSB.cmake. On case-insensitive file systems (Windows, macOS) CMake would pick
+    # Lichii's CMakeModules/find/Findlibusb.cmake first, which only asks pkg-config and sets
+    # libusb_FOUND, so SDL never saw libusb there. SDL gets the module path without that folder.
+    set(_lichii_module_path "${CMAKE_MODULE_PATH}")
+    list(FILTER CMAKE_MODULE_PATH EXCLUDE REGEX "/CMakeModules/find/?$")
     if (RENHDRUM_SDL_PATCHES)
         # SDL 3.4.8 with RenHDrum's HD Rumble transport modes (no-queue / write-after-input)
         AddJsonPackage(NAME sdl3-hdrumble FORCE_BUNDLED_PACKAGE ON)
     else()
         AddJsonPackage(sdl3)
     endif()
+    set(CMAKE_MODULE_PATH "${_lichii_module_path}")
+    unset(_lichii_module_path)
 else()
     message(STATUS "Using bundled SDL3")
     AddJsonPackage(sdl3-ci)
