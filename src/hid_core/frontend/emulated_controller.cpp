@@ -1272,7 +1272,9 @@ bool EmulatedController::SetVibration(DeviceIndex device_index, const VibrationV
         return false;
     }
 
+    // RenHDrum paces short pulses itself; dropping them here loses clicks
     if (!Settings::values.enable_accurate_vibrations.GetValue() &&
+        !Settings::values.hd_rumble_enabled.GetValue() &&
         !output_devices[index]->IsVibrationStreamed()) {
         using std::chrono::duration_cast;
         using std::chrono::milliseconds;
