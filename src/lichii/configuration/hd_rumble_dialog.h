@@ -72,18 +72,12 @@ private:
     QTreeWidget* pad_tree{};
     std::string last_pad_signature;
 
-    QGroupBox* switch_group{};
+    QGroupBox* controllers_group{};
     QCheckBox* switch_enabled{};
     QComboBox* switch_bt_mode{};
-
-    QGroupBox* dualsense_group{};
     QCheckBox* dualsense_enabled{};
-
-    QGroupBox* xbox_group{};
     QCheckBox* xbox_enabled{};
     QWidget* xbox_raw_box{};
-
-    QGroupBox* steam_group{};
     QCheckBox* steam_enabled{};
 
     QPushButton* test_button{};
