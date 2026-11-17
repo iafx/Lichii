@@ -154,6 +154,8 @@ add_executable(lichii
     configuration/configure_hd_rumble.h
     configuration/hd_rumble_dialog.cpp
     configuration/hd_rumble_dialog.h
+    configuration/auto_assign.cpp
+    configuration/auto_assign.h
     configuration/configure_vibration.cpp
     configuration/configure_vibration.h
     configuration/configure_vibration.ui

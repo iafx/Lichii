@@ -71,6 +71,7 @@
 #include "configuration/configure_per_game.h"
 #include "configuration/configure_tas.h"
 #include "configuration/hd_rumble_dialog.h"
+#include "lichii/configuration/auto_assign.h"
 #include "input_common/drivers/renhdrum_pad.h"
 
 #include "util/clickable_label.h"
@@ -682,6 +683,14 @@ MainWindow::MainWindow(bool has_broken_vulkan)
 #endif
 
     SetupPrepareForSleep();
+
+    auto* auto_assign = new Brontide::AutoAssign(
+        this, QtCommon::system->HIDCore(), *input_subsystem,
+        [] { return QApplication::activeModalWidget() != nullptr; },
+        [this] { config->SaveAllValues(); });
+    connect(auto_assign, &Brontide::AutoAssign::Assigned, this, [this](const QString& name) {
+        statusBar()->showMessage(tr("%1 is now Player 1 · HD Rumble ready").arg(name), 5000);
+    });
 
     // Some moron added a race condition to the status bar
     // so now we have to make this completely unnecessary call
