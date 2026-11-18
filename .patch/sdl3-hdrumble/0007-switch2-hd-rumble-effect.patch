@@ -1,0 +1,193 @@
+diff --git a/src/joystick/hidapi/SDL_hidapi_switch2.c b/src/joystick/hidapi/SDL_hidapi_switch2.c
+index 987f82c..9d8507b 100644
+--- a/src/joystick/hidapi/SDL_hidapi_switch2.c
++++ b/src/joystick/hidapi/SDL_hidapi_switch2.c
+@@ -108,6 +108,16 @@ typedef struct
+     Uint32 rumble_error;
+     bool rumble_updated;
+ 
++    // HD rumble from SDL_SendJoystickEffect: per motor (0 = left, 1 = right), two bands with their own
++    // frequency code (10 bits, Hz = 10 * 2^(code / 96)) and 10-bit amplitude. Played until
++    // hd_rumble_expire (ms), so a game that stops sending goes quiet.
++    bool hd_rumble;
++    Uint64 hd_rumble_expire;
++    Uint16 hd_lo_freq[2];
++    Uint16 hd_lo_amp[2];
++    Uint16 hd_hi_freq[2];
++    Uint16 hd_hi_amp[2];
++
+     Switch2_StickCalibration left_stick;
+     Switch2_StickCalibration right_stick;
+     Uint8 left_trigger_zero;
+@@ -656,9 +666,54 @@ static bool HIDAPI_DriverSwitch2_SetJoystickLED(SDL_HIDAPI_Device *device, SDL_J
+     return SDL_Unsupported();
+ }
+ 
++#define SWITCH2_HD_RUMBLE_EFFECT_SIZE 21
++#define SWITCH2_HD_RUMBLE_HOLD_MS     60
++// A motor block holds three operations, about 15 ms of rumble, but the controller plays through
++// them faster than that: one packet every 15 ms (or 10) left it short now and then, and every gap
++// shook the motor at its own resonance, which sounded like noise over the tone. One packet every
++// 8 ms keeps it fed and plays clean (checked by ear and against a DualSense on a Pro Controller).
++#define SWITCH2_HD_RUMBLE_INTERVAL    8
++// Pause of the rumble thread after each HD rumble write: its 10 ms default would hold the packets
++// back to ~11 ms apart
++#define SWITCH2_HD_RUMBLE_PAUSE_MS    1
++
++// HD rumble effect: "HDR2", a flags byte (reserved, 0), then for the left and the right motor
++// (Uint16 little endian each): low band frequency code, low band amplitude (0-1023), high band
++// frequency code, high band amplitude (0-1023). Frequency codes are 10 bits: Hz = 10 * 2^(code / 96)
++// (measured on a Pro Controller). Each effect plays for SWITCH2_HD_RUMBLE_HOLD_MS; send again to keep it going.
++// It goes out right away (within the rumble interval) instead of waiting for the next input report.
++static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx);
++
+ static bool HIDAPI_DriverSwitch2_SendJoystickEffect(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, const void *data, int size)
+ {
+-    return SDL_Unsupported();
++    SDL_DriverSwitch2_Context *ctx = (SDL_DriverSwitch2_Context *)device->context;
++    const Uint8 *effect = (const Uint8 *)data;
++
++    if (!effect || size != SWITCH2_HD_RUMBLE_EFFECT_SIZE || SDL_memcmp(effect, "HDR2", 4) != 0) {
++        return SDL_Unsupported();
++    }
++    if (device->product_id == USB_PRODUCT_NINTENDO_SWITCH2_GAMECUBE_CONTROLLER) {
++        return SDL_Unsupported();
++    }
++    if (device->is_bluetooth) {
++        // Only the USB rumble path below plays HD rumble. A Bluetooth path must put
++        // EncodeHDRumbleMotor() in its motor blocks before this check is removed; until then the
++        // caller gets "unsupported" and can fall back to SDL_RumbleJoystick().
++        return SDL_Unsupported();
++    }
++    for (int motor = 0; motor < 2; ++motor) {
++        const Uint8 *m = &effect[5 + motor * 8];
++        ctx->hd_lo_freq[motor] = (Uint16)((m[0] | (m[1] << 8)) & 0x3FF);
++        ctx->hd_lo_amp[motor] = (Uint16)SDL_min(m[2] | (m[3] << 8), 0x3FF);
++        ctx->hd_hi_freq[motor] = (Uint16)((m[4] | (m[5] << 8)) & 0x3FF);
++        ctx->hd_hi_amp[motor] = (Uint16)SDL_min(m[6] | (m[7] << 8), 0x3FF);
++    }
++    ctx->hd_rumble = true;
++    SDL_SetAtomicInt(&device->hd_pause_ms, SWITCH2_HD_RUMBLE_PAUSE_MS);
++    ctx->hd_rumble_expire = SDL_GetTicks() + SWITCH2_HD_RUMBLE_HOLD_MS;
++    ctx->rumble_updated = true;
++    UpdateRumble(ctx);
++    return true;
+ }
+ 
+ static bool HIDAPI_DriverSwitch2_SetJoystickSensorsEnabled(SDL_HIDAPI_Device *device, SDL_Joystick *joystick, bool enabled)
+@@ -1039,14 +1094,52 @@ static void EncodeHDRumble(Uint16 high_freq, Uint16 high_amp, Uint16 low_freq, U
+     rumble_data[4] = (Uint8)(low_amp >> 8);
+ }
+ 
++// One motor's HD rumble operation: low band frequency (bits 0-9), low band amplitude (10-19),
++// high band frequency (20-29), high band amplitude (30-39); 10-bit fields, as Valve's driver has
++static void EncodeHDRumble2(Uint16 lo_freq, Uint16 lo_amp, Uint16 hi_freq, Uint16 hi_amp, Uint8 rumble_data[5])
++{
++    Uint64 w = (Uint64)(lo_freq & 0x3FF) | ((Uint64)(lo_amp & 0x3FF) << 10) |
++               ((Uint64)(hi_freq & 0x3FF) << 20) | ((Uint64)(hi_amp & 0x3FF) << 30);
++    for (int i = 0; i < 5; ++i) {
++        rumble_data[i] = (Uint8)(w >> (8 * i));
++    }
++}
++
++// Fills one motor's block of three 5-byte operations (0 = left, 1 = right) from the HD rumble
++// effect, the same operation in all three, as Switch2Connect does, so no slot of the packet plays
++// silence. Returns false when no HD rumble effect is playing. The operation is the same over every
++// transport; only the packet around it differs.
++static bool EncodeHDRumbleMotor(SDL_DriverSwitch2_Context *ctx, int motor, Uint8 rumble_data[15])
++{
++    if (!ctx->hd_rumble) {
++        return false;
++    }
++    EncodeHDRumble2(ctx->hd_lo_freq[motor], ctx->hd_lo_amp[motor], ctx->hd_hi_freq[motor],
++                    ctx->hd_hi_amp[motor], rumble_data);
++    SDL_memcpy(&rumble_data[5], rumble_data, 5);
++    SDL_memcpy(&rumble_data[10], rumble_data, 5);
++    return true;
++}
++
+ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+ {
+-    if (!ctx->rumble_updated && !ctx->rumble_lo_amp && !ctx->rumble_hi_amp) {
++    Uint64 timestamp = SDL_GetTicks();
++
++    if (ctx->hd_rumble && timestamp >= ctx->hd_rumble_expire) {
++        // The application stopped sending HD rumble: send one silent packet
++        ctx->hd_rumble = false;
++        SDL_zeroa(ctx->hd_lo_amp);
++        SDL_zeroa(ctx->hd_hi_amp);
++        ctx->rumble_updated = true;
++    }
++    const bool hd_active = ctx->hd_rumble &&
++                           (ctx->hd_lo_amp[0] || ctx->hd_hi_amp[0] || ctx->hd_lo_amp[1] || ctx->hd_hi_amp[1]);
++
++    if (!ctx->rumble_updated && !ctx->rumble_lo_amp && !ctx->rumble_hi_amp && !hd_active) {
+         return true;
+     }
+ 
+-    Uint64 timestamp = SDL_GetTicks();
+-    Uint64 interval = RUMBLE_INTERVAL;
++    Uint64 interval = ctx->hd_rumble ? SWITCH2_HD_RUMBLE_INTERVAL : RUMBLE_INTERVAL;
+ 
+     if (timestamp < ctx->rumble_timestamp) {
+         return true;
+@@ -1079,7 +1172,11 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+         Uint16 low_amp = (Uint16)((int)ctx->rumble_lo_amp * RUMBLE_MAX / UINT16_MAX);
+         Uint16 high_amp = (Uint16)((int)ctx->rumble_hi_amp * RUMBLE_MAX / UINT16_MAX);
+         rumble_data[0x01] = 0x50 | (ctx->rumble_seq & 0xf);
+-        EncodeHDRumble(ctx->rumble_hi_freq, high_amp, ctx->rumble_lo_freq, low_amp, &rumble_data[0x02]);
++        // Joy-Con 2 have one motor: the left one plays the left side, the right one the right
++        const int first_motor = ctx->device->product_id == USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT ? 1 : 0;
++        if (!EncodeHDRumbleMotor(ctx, first_motor, &rumble_data[0x02])) {
++            EncodeHDRumble(ctx->rumble_hi_freq, high_amp, ctx->rumble_lo_freq, low_amp, &rumble_data[0x02]);
++        }
+         switch (ctx->device->product_id) {
+         case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_LEFT:
+         case USB_PRODUCT_NINTENDO_SWITCH2_JOYCON_RIGHT:
+@@ -1092,20 +1189,36 @@ static bool UpdateRumble(SDL_DriverSwitch2_Context *ctx)
+         case USB_PRODUCT_NINTENDO_SWITCH2_PRO:
+             rumble_data[0] = 0x2;
+             SDL_memcpy(&rumble_data[0x11], &rumble_data[0x01], 6);
++            // Second block: the right motor
++            EncodeHDRumbleMotor(ctx, 1, &rumble_data[0x12]);
+             break;
+         }
+     }
+     ctx->rumble_seq++;
+     ctx->rumble_updated = false;
+-    if (!ctx->rumble_lo_amp && !ctx->rumble_hi_amp) {
++    if (!ctx->rumble_lo_amp && !ctx->rumble_hi_amp && !hd_active) {
+         ctx->rumble_timestamp = 0;
+     } else {
+-        if (!ctx->rumble_timestamp) {
++        // After a stall, start again from now instead of sending a burst to catch up
++        if (!ctx->rumble_timestamp || timestamp > ctx->rumble_timestamp + interval) {
+             ctx->rumble_timestamp = timestamp;
+         }
+         ctx->rumble_timestamp += interval;
+     }
+ 
++    // Latest wins: a packet still waiting in the rumble queue is replaced, not followed by another.
++    // The rumble thread pauses after every write, so when writing is slower than the interval a
++    // queue of packets would grow and the rumble would lag further behind the longer it plays.
++    Uint8 *pending_data;
++    int *pending_size;
++    int maximum_size;
++    if (SDL_HIDAPI_GetPendingRumbleLocked(ctx->device, &pending_data, &pending_size, &maximum_size) &&
++        *pending_size == (int)sizeof(rumble_data)) {
++        SDL_memcpy(pending_data, rumble_data, sizeof(rumble_data));
++        SDL_HIDAPI_UnlockRumble();
++        return true;
++    }
++
+     if (SDL_HIDAPI_SendRumbleAndUnlock(ctx->device, rumble_data, sizeof(rumble_data)) != sizeof(rumble_data)) {
+         return SDL_SetError("Couldn't send rumble packet");
+     }
+@@ -1299,6 +1412,7 @@ static void HIDAPI_DriverSwitch2_CloseJoystick(SDL_HIDAPI_Device *device, SDL_Jo
+     SDL_RemoveHintCallback(SDL_HINT_JOYSTICK_HIDAPI_SWITCH_PLAYER_LED,
+                            SDL_PlayerLEDHintChanged, ctx);
+ 
++    SDL_SetAtomicInt(&device->hd_pause_ms, 0);
+     ctx->joystick = NULL;
+ }
+ 

@@ -22,6 +22,7 @@
 #include "common/thread.h"
 #include "common/vector_math.h"
 #include "input_common/drivers/renhdrum_pad.h"
+#include "input_common/drivers/switch2_hd_rumble.h"
 #include "input_common/drivers/sdl_driver.h"
 #include "input_common/helpers/dualsense_haptics.h"
 #include "input_common/helpers/rumble_mapping.h"
@@ -241,6 +242,9 @@ public:
     ~SDLJoystick() {
         if (renhdrum) {
             renhdrum->Shutdown();
+        }
+        if (switch2_hd) {
+            switch2_hd->Shutdown();
         }
     }
 
@@ -592,6 +596,7 @@ public:
         if (old_pad) {
             old_pad->Shutdown();
         }
+        SetSwitch2Hd(nullptr);
         {
             std::scoped_lock lock{haptics_mutex};
             haptics.Close();
@@ -612,6 +617,23 @@ public:
         reversed_axes = GetReversedStickAxes(GetBindings(controller));
         std::scoped_lock lock{renhdrum_mutex};
         renhdrum = std::move(new_pad);
+    }
+
+    void SetSwitch2Hd(std::shared_ptr<Switch2HdRumble> new_hd) {
+        std::shared_ptr<Switch2HdRumble> old_hd;
+        {
+            std::scoped_lock lock{renhdrum_mutex};
+            old_hd = std::exchange(switch2_hd, std::move(new_hd));
+        }
+        if (old_hd) {
+            old_hd->Shutdown();
+        }
+    }
+
+    /// Native HD rumble of a wired Switch 2 pad, or nullptr.
+    std::shared_ptr<Switch2HdRumble> GetSwitch2Hd() const {
+        std::scoped_lock lock{renhdrum_mutex};
+        return switch2_hd;
     }
 
     /// RenHDrum for this controller, or nullptr when it uses the standard rumble.
@@ -767,6 +789,7 @@ private:
 
     mutable std::mutex renhdrum_mutex;
     std::shared_ptr<RenHDrumPad> renhdrum;
+    std::shared_ptr<Switch2HdRumble> switch2_hd;
 
     u64 last_motion_update{};
     static constexpr std::size_t InitialMotionRestartThreshold = 200;
@@ -953,6 +976,7 @@ void SDLDriver::InitJoystick(SDL_JoystickID joystick_id) {
         SetBattery(joystick->GetPadIdentifier(),
                    joystick->GetBatteryLevel(battery_state, battery_percent));
     }
+    joystick->SetSwitch2Hd(Switch2HdRumble::Create(sdl_joystick));
     joystick->EnableMotion();
     LOG_INFO(Input, "{} connected on port {} (instance {}, {})", joystick->GetControllerName(),
              joystick->GetPort(), joystick_id, joystick_path);
@@ -995,6 +1019,7 @@ void SDLDriver::PumpEvents() {
     // the map lock is released: a tick calls into SDL, and SDL's controller-added callback can
     // hold the SDL joystick lock while it waits for the map lock.
     std::vector<std::shared_ptr<RenHDrumPad>> pads;
+    std::vector<std::shared_ptr<Switch2HdRumble>> switch2_pads;
     {
         std::scoped_lock lock{joystick_map_mutex};
         for (const auto& [guid, joystick_list] : joystick_map) {
@@ -1002,14 +1027,20 @@ void SDLDriver::PumpEvents() {
                 if (auto pad = joystick->GetRenHDrum()) {
                     pads.push_back(std::move(pad));
                 }
+                if (auto hd = joystick->GetSwitch2Hd()) {
+                    switch2_pads.push_back(std::move(hd));
+                }
             }
         }
     }
-    if (!pads.empty()) {
+    if (!pads.empty() || !switch2_pads.empty()) {
         const auto tick = std::chrono::steady_clock::now().time_since_epoch();
         const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(tick).count();
         for (const auto& pad : pads) {
             pad->Tick(now_us);
+        }
+        for (const auto& hd : switch2_pads) {
+            hd->Tick(now_us);
         }
     }
 
@@ -1284,6 +1315,14 @@ Common::Input::DriverResult SDLDriver::SetVibration(
             return Common::Input::DriverResult::Success;
         }
     }
+    // RenHDrum drives only Switch 1 pads: a wired Switch 2 pad plays the game's bands natively
+    if (const auto hd = joystick->GetSwitch2Hd()) {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch();
+        const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+        if (hd->Vibrate(now_us, identifier.pad == 1, vibration)) {
+            return Common::Input::DriverResult::Success;
+        }
+    }
 
     if (joystick->HapticsPlay(vibration)) {
         return Common::Input::DriverResult::Success;
@@ -1361,6 +1400,13 @@ bool SDLDriver::IsVibrationEnabled(const PadIdentifier& identifier) {
 
 bool SDLDriver::IsVibrationStreamed(const PadIdentifier& identifier) {
     const auto joystick = GetSDLJoystickByGUID(identifier.guid, static_cast<int>(identifier.port));
+    if (!joystick) {
+        return false;
+    }
+    // The Switch 2 HD path paces the game's vibration itself and needs every update
+    if (const auto hd = joystick->GetSwitch2Hd(); hd && hd->IsActive()) {
+        return true;
+    }
     return joystick->IsHapticsOpen();
 }
 

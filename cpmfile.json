@@ -283,7 +283,8 @@
             "0003-switch2-sensor-enabled.patch",
             "0004-no-static-export-without-install.patch",
             "0005-hdrumble.patch",
-            "0006-hdrumble-idle-write.patch"
+            "0006-hdrumble-idle-write.patch",
+            "0007-switch2-hd-rumble-effect.patch"
         ]
     },
     "sdl3-ci": {

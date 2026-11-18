@@ -60,6 +60,8 @@ else()
         drivers/renhdrum_pad.h
         drivers/sdl_driver.cpp
         drivers/sdl_driver.h
+        drivers/switch2_hd_rumble.cpp
+        drivers/switch2_hd_rumble.h
         helpers/dualsense_haptics.cpp
         helpers/dualsense_haptics.h
         helpers/joycon_driver.cpp
