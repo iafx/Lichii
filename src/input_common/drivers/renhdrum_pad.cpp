@@ -162,6 +162,14 @@ constexpr Uint16 ValveVendorId = 0x28DE;
 constexpr Uint8 SteamReportPcmMode = 0x86;
 constexpr int SteamGripMaxFailsInRow = 100;
 constexpr Uint64 SteamGripTailNs = 100'000'000ULL;
+// Grip audio is switched off after this long with nothing to play and on again (with the 200 ms
+// settle) at the next vibration: measured lossless after 30 s idle. Once a controller stayed
+// silent for good (start-up vibration and 0x80 rumble too, even after the battery was taken out)
+// after a long session with the grip audio left on; 0x86 "off" brought it back (iafx, RenHDrum#5).
+constexpr Uint64 SteamGripIdleOffNs = 3'000'000'000ULL;
+// While it plays, 0x86 "on" again every 3 s and after a stall: the audio can stop with nothing
+// failing (controller power-cycled behind the dongle, PC suspend); resending is harmless
+constexpr Uint64 SteamGripModeResendNs = 3'000'000'000ULL;
 constexpr std::array<Uint8, 10> NeutralPacket{0x10, 0, 0x00, 0x01, 0x40, 0x40, 0x00, 0x01, 0x40, 0x40};
 constexpr int DualSenseAudioMaxAttempts = 10;
 constexpr int HdRumbleMaxInitialSendFails = 8;
@@ -692,6 +700,10 @@ struct RenHDrumPad::Impl {
                 SDL_DelayPrecise(next - now);
             } else if (now - next > ResyncNs) {
                 next = now; // stalled: resync instead of bursting
+                if (audio_on) {
+                    SendSteamGripMode(bt_hid, 2, format); // the audio may have stopped meanwhile
+                    last_mode = now;
+                }
             }
         }
         bt_running.store(false);
@@ -768,6 +780,9 @@ struct RenHDrumPad::Impl {
         std::array<std::uint8_t, RENHDRUM_VALVE_GRIP_REPORT_SIZE> report{};
         Uint64 next = SDL_GetTicksNS();
         Uint64 last_signal = 0;
+        Uint64 last_mode = next;
+        Uint64 audio_on_since = next;
+        bool audio_on = true; // StartSteamGrip switched it on
         int fails_in_row = 0;
         while (bt_running.load()) {
             next += period_ns;
@@ -778,11 +793,31 @@ struct RenHDrumPad::Impl {
                     built = api.valve_build_report(steam_dsp, format, report.data());
                 }
             }
-            const Uint64 now = SDL_GetTicksNS();
+            Uint64 now = SDL_GetTicksNS();
             if (built == 1) {
                 last_signal = now;
+                if (!audio_on) {
+                    SendSteamGripMode(bt_hid, 1, 0);
+                    SDL_Delay(10);
+                    SendSteamGripMode(bt_hid, 2, format);
+                    SDL_Delay(200);
+                    audio_on = true;
+                    now = SDL_GetTicksNS();
+                    next = now + period_ns;
+                    last_signal = last_mode = audio_on_since = now;
+                }
             }
-            if (built >= 0 && last_signal != 0 && now - last_signal < SteamGripTailNs) {
+            const Uint64 quiet_since = last_signal != 0 ? last_signal : audio_on_since;
+            if (audio_on && now - quiet_since >= SteamGripIdleOffNs) {
+                SendSteamGripMode(bt_hid, 1, format);
+                SendSteamGripMode(bt_hid, 1, 0);
+                audio_on = false;
+            }
+            if (audio_on && now - last_mode >= SteamGripModeResendNs) {
+                SendSteamGripMode(bt_hid, 2, format);
+                last_mode = now;
+            }
+            if (audio_on && built >= 0 && last_signal != 0 && now - last_signal < SteamGripTailNs) {
                 if (SDL_hid_write(bt_hid, report.data(), report.size()) < 0) {
                     ++fails_in_row;
                 } else {
@@ -802,6 +837,10 @@ struct RenHDrumPad::Impl {
                 SDL_DelayPrecise(next - now);
             } else if (now - next > ResyncNs) {
                 next = now; // stalled: resync instead of bursting
+                if (audio_on) {
+                    SendSteamGripMode(bt_hid, 2, format); // the audio may have stopped meanwhile
+                    last_mode = now;
+                }
             }
         }
         bt_running.store(false);
