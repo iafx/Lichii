@@ -323,6 +323,8 @@ int32_t renhdrum_tri_trigger_update(
     bool fresh,
     uint8_t *out11
 );
+/* Player pressed another button: no new pulse until 500 ms after the last call (same clock as update). */
+void renhdrum_tri_trigger_note_action(RenHdcTriTrigger *h, uint32_t now_ms);
 
 /* Switch 2 rumble mode: 0 = Switch 1 default / untouched, 2 = Switch 2 Mode 2 translation */
 void renhdrum_set_nx2_mode(int32_t mode);

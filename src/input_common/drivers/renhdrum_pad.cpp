@@ -73,6 +73,8 @@ struct RenHDrumApi {
     decltype(&renhdrum_tri_trigger_create) tri_create{};
     decltype(&renhdrum_tri_trigger_destroy) tri_destroy{};
     decltype(&renhdrum_tri_trigger_update) tri_update{};
+    // Optional (plan 118 step 10a): other buttons pressed mute the trigger kick
+    decltype(&renhdrum_tri_trigger_note_action) tri_note_action{};
     bool HasTriTrigger() const {
         return tri_create && tri_destroy && tri_update;
     }
@@ -133,6 +135,7 @@ const RenHDrumApi& Api() {
             (void)a.library.GetSymbol("renhdrum_tri_trigger_create", &a.tri_create);
             (void)a.library.GetSymbol("renhdrum_tri_trigger_destroy", &a.tri_destroy);
             (void)a.library.GetSymbol("renhdrum_tri_trigger_update", &a.tri_update);
+            (void)a.library.GetSymbol("renhdrum_tri_trigger_note_action", &a.tri_note_action);
             LOG_INFO(Input, "RenHDrum: loaded {}", name);
         } else {
             LOG_WARNING(Input, "RenHDrum: {} is missing functions, using the standard rumble", name);
@@ -772,6 +775,24 @@ struct RenHDrumPad::Impl {
                                             : SDL_GAMEPAD_AXIS_LEFT_TRIGGER),
             0, 32767);
         const auto depth = static_cast<Uint8>(axis * 255 / 32767);
+        // Plan 118 step 10a: another button (or the other trigger) held means rumble belongs to
+        // that action, so the trigger must not follow it. START/BACK/GUIDE/TOUCHPAD/MISC/paddles
+        // do not count.
+        static constexpr std::array<SDL_GamepadButton, 12> action_buttons{
+            SDL_GAMEPAD_BUTTON_SOUTH,         SDL_GAMEPAD_BUTTON_EAST,
+            SDL_GAMEPAD_BUTTON_WEST,          SDL_GAMEPAD_BUTTON_NORTH,
+            SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER,
+            SDL_GAMEPAD_BUTTON_LEFT_STICK,    SDL_GAMEPAD_BUTTON_RIGHT_STICK,
+            SDL_GAMEPAD_BUTTON_DPAD_UP,       SDL_GAMEPAD_BUTTON_DPAD_DOWN,
+            SDL_GAMEPAD_BUTTON_DPAD_LEFT,     SDL_GAMEPAD_BUTTON_DPAD_RIGHT};
+        bool other_action =
+            SDL_GetGamepadAxis(gp, is_right ? SDL_GAMEPAD_AXIS_LEFT_TRIGGER
+                                            : SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) *
+                    255 / 32767 >
+                12;
+        for (std::size_t i = 0; !other_action && i < action_buttons.size(); ++i) {
+            other_action = SDL_GetGamepadButton(gp, action_buttons[i]);
+        }
         std::array<Uint8, 11> effect{};
         int changed = 0;
         {
@@ -781,7 +802,11 @@ struct RenHDrumPad::Impl {
             }
             const bool fresh = std::exchange(tri_fresh[side], false);
             const auto& s = tri_sample[side];
-            changed = Api().tri_update(tri[side], static_cast<std::uint32_t>(now_us / 1000),
+            const auto now_ms = static_cast<std::uint32_t>(now_us / 1000);
+            if (other_action && Api().tri_note_action) {
+                Api().tri_note_action(tri[side], now_ms);
+            }
+            changed = Api().tri_update(tri[side], now_ms,
                                        depth, s[0], s[1], s[2], s[3], fresh, effect.data());
         }
         if (changed == 1) {
