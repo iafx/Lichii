@@ -1008,6 +1008,13 @@ std::shared_ptr<RenHDrumPad> RenHDrumPad::Create(SDL_Joystick* joystick, SDL_Gam
     }
     const Uint16 vid = SDL_GetJoystickVendor(joystick);
     const Uint16 pid = SDL_GetJoystickProduct(joystick);
+    // A virtual joystick (Lichii's own Switch 2 Pro Controller over Bluetooth LE, switch2_ble)
+    // takes no HD Rumble packets: it keeps its driver's standard rumble from the start
+    if (SDL_IsJoystickVirtual(SDL_GetJoystickID(joystick))) {
+        LOG_INFO(Input, "RenHDrum: {:04X}:{:04X} is a virtual joystick, using its standard rumble",
+                 vid, pid);
+        return nullptr;
+    }
     if (IsSteamController(vid, pid)) {
 #ifndef _WIN32
         if (pid == 0x1303) {
