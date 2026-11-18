@@ -6,6 +6,7 @@
 #include <utility>
 
 #include <QCheckBox>
+#include <QColor>
 #include <QComboBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -33,7 +34,9 @@ QLabel* MutedLabel(const QString& text, int indent = 0) {
     auto* label = new QLabel(text);
     label->setWordWrap(true);
     label->setContentsMargins(indent, 0, 0, 0);
-    label->setStyleSheet(QStringLiteral("color: palette(mid);"));
+    // Help text: the theme's own text colour, a little lighter (palette(mid) is too faint on dark themes)
+    const QColor c = label->palette().color(QPalette::WindowText);
+    label->setStyleSheet(QStringLiteral("color: rgba(%1, %2, %3, 175);").arg(c.red()).arg(c.green()).arg(c.blue()));
     return label;
 }
 
