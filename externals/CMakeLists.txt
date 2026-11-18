@@ -157,10 +157,18 @@ if (ENABLE_LIBUSB)
     add_subdirectory(libusb)
 endif()
 
+# RenHDrum's SDL3 (sdl3-hdrumble) is the same SDL release with the same patches as sdl3, plus
+# RenHDrum's HD Rumble transport patches
+if (RENHDRUM_SDL_PATCHES)
+    set(_lichii_sdl3 sdl3-hdrumble)
+else()
+    set(_lichii_sdl3 sdl3)
+endif()
+
 # The prebuilt Windows SDL3 has no libusb, which SDL's Switch 2 controller driver needs
 if (MSVC AND ENABLE_LIBUSB AND LICHII_USE_BUNDLED_SDL3)
-    message(STATUS "Building SDL3 with libusb for Switch 2 controllers")
-    AddJsonPackage(NAME sdl3 FORCE_BUNDLED_PACKAGE ON OPTIONS
+    message(STATUS "Building SDL3 (${_lichii_sdl3}) with libusb for Switch 2 controllers")
+    AddJsonPackage(NAME ${_lichii_sdl3} FORCE_BUNDLED_PACKAGE ON OPTIONS
         "SDL_SHARED OFF"
         "SDL_STATIC ON"
         "SDL_INSTALL OFF"
@@ -190,7 +198,7 @@ elseif (NOT LICHII_USE_BUNDLED_SDL3)
     endif()
 
     if (RENHDRUM_SDL_PATCHES)
-        # SDL 3.4.8 with RenHDrum's HD Rumble transport modes (no-queue / write-after-input)
+        # RenHDrum's HD Rumble transport modes (no-queue / write-after-input)
         AddJsonPackage(NAME sdl3-hdrumble FORCE_BUNDLED_PACKAGE ON OPTIONS "SDL_INSTALL OFF")
     else()
         AddJsonPackage(NAME sdl3 OPTIONS "SDL_INSTALL OFF")

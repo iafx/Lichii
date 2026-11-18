@@ -268,7 +268,9 @@ option(ENABLE_RENHDRUM "Play controller vibration through RenHDrum when renhdrum
 option(RENHDRUM_DOWNLOAD "Download the prebuilt renhdrum.dll next to the executable (Windows x64)" OFF)
 cmake_dependent_option(RENHDRUM_SDL_PATCHES
     "Build SDL3 from source with RenHDrum's HD Rumble transport patches" ON "ENABLE_RENHDRUM" OFF)
-if (RENHDRUM_SDL_PATCHES AND LICHII_USE_BUNDLED_SDL3)
+# On MSVC the "bundled" SDL3 is already built from source (with libusb), as sdl3-hdrumble when this
+# is on; elsewhere the bundled SDL3 is a prebuilt one, so it is built from source instead
+if (RENHDRUM_SDL_PATCHES AND LICHII_USE_BUNDLED_SDL3 AND NOT MSVC)
     message(STATUS "RENHDRUM_SDL_PATCHES: building SDL3 from source instead of the bundled build")
     set(LICHII_USE_BUNDLED_SDL3 OFF)
 endif()
