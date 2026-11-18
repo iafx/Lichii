@@ -304,6 +304,26 @@ int32_t renhdrum_xbox_rumble_push_half_sample(
 int32_t renhdrum_xbox_rumble_tick(RenHdcXboxRumble *rumble, int64_t now_us, uint16_t *out_motors4);
 int32_t renhdrum_xbox_rumble_resend(RenHdcXboxRumble *rumble);
 
+/* DualSense speaker channel (RenHDrum 0.4.x+): percent 0..100, 0 = off (channel 1 stays silent). */
+int32_t renhdrum_dualsense_dsp_set_speaker(RenHdcDualSenseDsp *dsp, int32_t percent);
+
+/* Vibration-reactive trigger (one handle per trigger). update: 1 = changed (11 bytes written to
+   out11, pack with the DS5 effects state), 0 = unchanged, <0 = error. */
+typedef struct RenHdcTriTrigger RenHdcTriTrigger;
+RenHdcTriTrigger *renhdrum_tri_trigger_create(void);
+void renhdrum_tri_trigger_destroy(RenHdcTriTrigger *h);
+int32_t renhdrum_tri_trigger_update(
+    RenHdcTriTrigger *h,
+    uint32_t now_ms,
+    uint8_t depth,
+    float amp_low,
+    float freq_low,
+    float amp_high,
+    float freq_high,
+    bool fresh,
+    uint8_t *out11
+);
+
 /* Switch 2 rumble mode: 0 = Switch 1 default / untouched, 2 = Switch 2 Mode 2 translation */
 void renhdrum_set_nx2_mode(int32_t mode);
 
