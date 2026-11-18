@@ -1,9 +1,11 @@
 name: lichii-renhdrum-0.4-windows
 
-# Official Lichii (nx2) + RenHDrum 0.4.0's eden-switch2 series (0001-0019), Windows x64, with
-# renhdrum.dll 0.4.0 built from its source and shipped next to lichii.exe. Nothing of our own HD
-# Rumble is in it: this is RenHDrum as its author publishes it, for testing it on Lichii.
-# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum-0.4 branch.
+# Lichii (test/all-in-one-10 at 9c9a1df) + RenHDrum 0.4.0's eden-switch2 series (0001-0019), Windows
+# x64, with renhdrum.dll 0.4.0 built from its source and shipped next to lichii.exe. On top of
+# RenHDrum as its author publishes it: the Steam Controller (2026) grip audio is switched off when
+# idle and 0x86 is resent while it plays (RenHDrum#5), and RenHDrum leaves virtual joysticks alone.
+# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum-0.4 or renhdrum-aio10
+# branch.
 # By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
 # and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
 on:
@@ -16,6 +18,7 @@ on:
   push:
     branches:
       - renhdrum-0.4
+      - renhdrum-aio10
 
 permissions:
   contents: read
@@ -50,19 +53,6 @@ jobs:
           set -euo pipefail
           cargo build --release
           ls -la target/release/renhdrum.dll
-
-      # libusb for SDL's Switch 2 controller driver (Switch 2 Pro Controller / Joy-Con 2 over USB):
-      # without it SDL leaves that driver out on Windows. SDL loads libusb-1.0.dll at run time, so
-      # Lichii still starts without it; only those controllers need it.
-      - name: Get libusb
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL -o "$RUNNER_TEMP/libusb.7z" \
-            https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.7z
-          echo "7fb1dfec805b97983763d7d0ae244320da12add1003d4249c96cc4d586398c79  $RUNNER_TEMP/libusb.7z" | sha256sum -c -
-          7z x -y -o_libusb "$RUNNER_TEMP/libusb.7z" > /dev/null
-          ls -la _libusb/include/libusb.h _libusb/VS2022/MS64/dll/libusb-1.0.dll _libusb/VS2022/MS64/dll/libusb-1.0.lib
 
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -121,8 +111,9 @@ jobs:
           restore-keys: |
             objects-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-
 
-      # SDL3 is built from source with RenHDrum's .patch/sdl3-hdrumble (RENHDRUM_SDL_PATCHES is on
-      # by default with ENABLE_RENHDRUM, which turns the bundled SDL3 off)
+      # SDL3 is built from source as on Lichii's release (static, with Lichii's own libusb for the
+      # Switch 2 controller driver), as RenHDrum's .patch/sdl3-hdrumble: the same SDL 3.4.20 and
+      # patches plus RenHDrum's transport patches (RENHDRUM_SDL_PATCHES, on with ENABLE_RENHDRUM)
       - name: Configure
         shell: bash
         run: |
@@ -136,15 +127,15 @@ jobs:
             -DLICHII_ROOM=OFF
             -DLICHII_ROOM_STANDALONE=OFF
             -DLICHII_USE_BUNDLED_QT=OFF
+            -DENABLE_QT_TRANSLATION=ON
+            -DLICHII_USE_BUNDLED_SDL3=ON
             -DENABLE_UPDATE_CHECKER=OFF
-            -DLICHII_BUILD_TAG=renhdrum-0.4.0-${{ github.run_number }}
+            -DLICHII_BUILD_TAG=renhdrum-0.4.0-aio10-${{ github.run_number }}
             -DENABLE_RENHDRUM=ON
             -DRENHDRUM_DOWNLOAD=OFF
             -DRENHDRUM_SDL_PATCHES=ON
             "-DLICHII_BUILD_PLATFORM=$PLATFORM"
             -DUSE_DISCORD_PRESENCE=OFF
-            "-DLibUSB_LIBRARY=$ws/_libusb/VS2022/MS64/dll/libusb-1.0.lib"
-            "-DLibUSB_INCLUDE_PATH=$ws/_libusb/include"
             -DCMAKE_C_COMPILER_LAUNCHER=sccache
             -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           )
@@ -161,6 +152,8 @@ jobs:
               "-DCMAKE_CXX_COMPILER=$LLVM_ROOT/bin/clang-cl.exe"
               "-DCMAKE_LINKER=$LLVM_ROOT/bin/lld-link.exe"
               "-DCMAKE_AR=$LLVM_ROOT/bin/llvm-lib.exe"
+              -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
+              "-DCMAKE_EXE_LINKER_FLAGS=/DEBUG:FULL /OPT:REF /OPT:ICF"
               "-DCMAKE_C_FLAGS=$flags"
               "-DCMAKE_CXX_FLAGS=-EHsc $flags"
             )
@@ -199,24 +192,18 @@ jobs:
             if (-not (Test-Path "build/release/bin/$f")) { throw "build/release/bin/$f was not produced" }
           }
           windeployqt --release --no-translations build/release/bin/lichii.exe
-          # libusb for the Switch 2 controllers (LGPL-2.1-or-later, loaded at run time by SDL)
-          Copy-Item _libusb/VS2022/MS64/dll/libusb-1.0.dll build/release/bin/
-          Copy-Item _libusb/README.txt build/release/bin/LIBUSB-README.txt
-          Set-Content build/release/bin/LIBUSB-LICENSE.txt ("libusb-1.0.dll is libusb 1.0.30, licensed under " +
-            "the GNU Lesser General Public License 2.1 or later. Source code: " +
-            "https://github.com/libusb/libusb/releases/tag/v1.0.30")
           # RenHDrum 0.4.0 (MIT OR Apache-2.0), loaded at run time; without it the standard rumble
           Copy-Item _renhdrum/target/release/renhdrum.dll build/release/bin/
           Copy-Item _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
           Copy-Item _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
           Get-ChildItem build/release/bin -Exclude *.pdb, *.ilk, *.lib, *.exp |
-            Compress-Archive -DestinationPath "lichii-renhdrum-0.4.0-$env:PLATFORM.zip"
+            Compress-Archive -DestinationPath "lichii-aio10-renhdrum-0.4.0-$env:PLATFORM.zip"
 
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-renhdrum-0.4.0-${{ env.PLATFORM }}-${{ github.sha }}
-          path: lichii-renhdrum-0.4.0-${{ env.PLATFORM }}.zip
+          name: lichii-aio10-renhdrum-0.4.0-${{ env.PLATFORM }}-${{ github.sha }}
+          path: lichii-aio10-renhdrum-0.4.0-${{ env.PLATFORM }}.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
