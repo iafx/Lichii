@@ -477,6 +477,10 @@ struct RenHDrumPad::Impl {
     bool bo3_restore_trigger{}; // set by Release(): Shutdown sends Off to both triggers
     std::array<RenHdcTriTrigger*, 2> tri{};
     std::array<std::array<float, 4>, 2> tri_sample{};
+    std::array<bool, 2> tri_fresh{};
+    // Held from computing the trigger effect until its packet is sent, so packets leave in the
+    // same order the state machine changed (SDL replaces a pending packet with the same bit).
+    std::mutex bo3_tri_mutex;
 
     RenHdcXboxRumble* xbox{};
     bool xbox_triggers{};
@@ -747,11 +751,11 @@ struct RenHDrumPad::Impl {
         }
     }
 
-    /// Plan 118: one step of the trigger kick for one side. `sample` is the newest raw vibration
-    /// of that side, or nullptr on a periodic Tick (so the effect can fall back to Off). Called
-    /// without the mutex.
-    void Bo3TriggerStep(std::int64_t now_us, bool is_right,
-                        const std::array<float, 4>* sample) {
+    /// Plan 118: one step of the trigger kick for one side. Only Tick calls it (every ~1 ms);
+    /// Vibrate just stores the newest raw sample and `tri_fresh`. Lock order: `bo3_tri_mutex`,
+    /// then `mutex`. Called without `mutex`.
+    void Bo3TriggerStep(std::int64_t now_us, bool is_right) {
+        std::scoped_lock tri_lock{bo3_tri_mutex};
         const std::size_t side = is_right ? 1 : 0;
         SDL_Joystick* js = nullptr;
         SDL_Gamepad* gp = nullptr;
@@ -762,9 +766,6 @@ struct RenHDrumPad::Impl {
             }
             js = joystick;
             gp = gamepad;
-            if (sample) {
-                tri_sample[side] = *sample;
-            }
         }
         const int axis = std::clamp<int>(
             SDL_GetGamepadAxis(gp, is_right ? SDL_GAMEPAD_AXIS_RIGHT_TRIGGER
@@ -778,10 +779,10 @@ struct RenHDrumPad::Impl {
             if (!tri[side]) {
                 return;
             }
+            const bool fresh = std::exchange(tri_fresh[side], false);
             const auto& s = tri_sample[side];
             changed = Api().tri_update(tri[side], static_cast<std::uint32_t>(now_us / 1000),
-                                       depth, s[0], s[1], s[2], s[3], sample != nullptr,
-                                       effect.data());
+                                       depth, s[0], s[1], s[2], s[3], fresh, effect.data());
         }
         if (changed == 1) {
             const auto block = Bo3TriggerBlock(is_right, effect);
@@ -1453,6 +1454,7 @@ void RenHDrumPad::Shutdown() {
         SendNeutralPacket(joystick);
     }
     if (restore_trigger) {
+        std::scoped_lock tri_lock{impl->bo3_tri_mutex};
         for (const bool is_right : {false, true}) {
             const auto block = Bo3TriggerBlock(is_right, Bo3TriggerOff);
             SDL_SendJoystickEffect(joystick, block.data(), static_cast<int>(block.size()));
@@ -1490,7 +1492,6 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
     std::array<std::uint16_t, 2> direct{};
     bool send_trigger = false;
     std::array<std::uint16_t, 2> trigger{};
-    bool bo3_step = false;
     {
         std::scoped_lock lock{impl->mutex};
         if (!impl->joystick) {
@@ -1611,7 +1612,12 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
                                         ShapeAmplitude(status.high_amplitude, u),
                                         status.high_frequency);
                 handled = impl->audio_stream != nullptr || impl->bt_running.load();
-                bo3_step = impl->tri[0] != nullptr;
+                const std::size_t side = is_right ? 1 : 0;
+                if (impl->tri[side]) {
+                    impl->tri_sample[side] = {status.low_amplitude, status.low_frequency,
+                                              status.high_amplitude, status.high_frequency};
+                    impl->tri_fresh[side] = true;
+                }
             } else {
                 // Haptics off: silence the voice coils, the standard rumble takes over
                 api.dsp_set_half_target(impl->dsp, is_right, 0.0f, status.low_frequency, 0.0f,
@@ -1622,11 +1628,6 @@ bool RenHDrumPad::Vibrate(std::int64_t now_us, bool is_right,
     if (stop_sdl_rumble) {
         // Same one-off stop as after opening the speaker (OpenDualSenseAudio)
         SDL_RumbleJoystick(joystick, 0, 0, 0);
-    }
-    if (bo3_step) {
-        const std::array<float, 4> sample{status.low_amplitude, status.low_frequency,
-                                          status.high_amplitude, status.high_frequency};
-        impl->Bo3TriggerStep(now_us, is_right, &sample);
     }
     if (send_direct) {
         // A stop always arrives as a zero; the duration only guards a lost one
@@ -1778,8 +1779,8 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
         }
     }
     // Plan 118: the trigger kick falls back to Off from here when no new sample arrives
-    impl->Bo3TriggerStep(now_us, false, nullptr);
-    impl->Bo3TriggerStep(now_us, true, nullptr);
+    impl->Bo3TriggerStep(now_us, false);
+    impl->Bo3TriggerStep(now_us, true);
     if (send) {
         if (SDL_SendJoystickEffect(joystick, packet.data(), static_cast<int>(packet.size()))) {
             impl->engine_ever_sent.store(true, std::memory_order_relaxed);
