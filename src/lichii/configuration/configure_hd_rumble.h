@@ -3,75 +3,14 @@
 
 #pragma once
 
-#include <QDialog>
+#include <functional>
 
-class QCheckBox;
-class QComboBox;
-class QGroupBox;
-class QLabel;
-class QListWidget;
-class QSlider;
-class QSpinBox;
-class QStackedWidget;
+class QWidget;
 
-/// Settings for RenHDrum: HD Rumble on Switch Pro Controller / Joy-Con and the DualSense voice
-/// coil haptics. The SDL driver reads them on every vibration, so connected controllers pick up
-/// a change as soon as the dialog is accepted.
-class ConfigureHdRumble : public QDialog {
-    Q_OBJECT
-
-public:
-    explicit ConfigureHdRumble(QWidget* parent);
-    ~ConfigureHdRumble() override;
-
-    void ApplyConfiguration();
-
-private:
-    QWidget* CreateSwitchPage();
-    QWidget* CreateDualSensePage();
-    QWidget* CreateXboxPage();
-    void LoadConfiguration();
-    void RestoreDefaults();
-    void UpdateEnabledState();
-
-    QCheckBox* hd_enabled{};
-    bool advanced{};
-    QCheckBox* ds_simple{};
-    QCheckBox* xbox_simple{};
-    QSlider* gain_slider{};
-    QSpinBox* gain{};
-    QSlider* boost_slider{};
-    QSpinBox* boost{};
-    QListWidget* page_list{};
-    QStackedWidget* pages{};
-
-    QGroupBox* wired_group{};
-    QSpinBox* usb_interval{};
-    QCheckBox* envelope_5ms{};
-    QCheckBox* frequency_in_packet{};
-    QCheckBox* crisp_notes{};
-
-    QGroupBox* bt_group{};
-    QComboBox* bt_level{};
-    QCheckBox* bt_after_input{};
-    QCheckBox* bt_fast{};
-    QCheckBox* bt_crisp_notes{};
-
-    QCheckBox* ds_enabled{};
-    QSlider* ds_volume_slider{};
-    QSpinBox* ds_volume{};
-    QCheckBox* ds_crisp_notes{};
-
-    QCheckBox* xbox_enabled{};
-    QComboBox* xbox_mode{};
-    QSlider* xbox_detail_slider{};
-    QSpinBox* xbox_detail{};
-    QSlider* xbox_accents_slider{};
-    QSpinBox* xbox_accents{};
-    QSlider* xbox_trigger_slider{};
-    QSpinBox* xbox_trigger{};
-    QLabel* xbox_no_triggers{};
-    int xbox_triggers_state{-1};
-    QSlider* xbox_strength_slider{};
-    QSpinBox* xbox_strength{};
-};
+/// The HD Rumble settings page of this emulator: RenHDrum's shared Qt page (drawn from the core's
+/// settings table) wired to the emulator. Values are saved in qt-config.ini under [RenHDrum]
+/// (Settings::values.renhdrum_values); the SDL driver rebuilds its store when they change, so
+/// connected controllers pick a change up on their next vibration. `test_rumble` and
+/// `report_problem` are the actions of the page's two buttons.
+QWidget* CreateHdRumbleSettingsPage(QWidget* parent, std::function<void()> test_rumble,
+                                    std::function<void()> report_problem);

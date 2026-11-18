@@ -47,8 +47,8 @@ private:
     float jitter{};
 };
 
-/// Neutral Qt dialog for RenHDrum: live controller list, per-controller toggles, test rumble, and
-/// problem report bundle.
+/// HD Rumble dialog: runtime status, the shared RenHDrum settings page (drawn from the core's
+/// settings table, see configure_hd_rumble.h) and the rumble-on-connect switch.
 class HdRumbleDialog final : public QDialog {
     Q_OBJECT
 
@@ -58,31 +58,15 @@ public:
 
 private:
     void RefreshStatus();
-    void RefreshPads();
-    void ApplyEnabledState();
 
     Core::HID::HIDCore& hid_core;
     ThunderRumblePlayer* thunder{};
 
-    QCheckBox* hd_enabled{};
     QLabel* status_dot{};
     QLabel* status_label{};
     QLabel* missing_link{};
 
-    QTreeWidget* pad_tree{};
-    std::string last_pad_signature;
-
-    QGroupBox* controllers_group{};
-    QCheckBox* switch_enabled{};
-    QComboBox* switch_bt_mode{};
-    QCheckBox* dualsense_enabled{};
-    QCheckBox* xbox_enabled{};
-    QWidget* xbox_raw_box{};
-    QCheckBox* steam_enabled{};
-
-    QPushButton* test_button{};
     QCheckBox* rumble_on_connect{};
-    QLabel* footer_credit{};
 
     QTimer refresh_timer;
 };

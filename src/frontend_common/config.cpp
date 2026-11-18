@@ -339,6 +339,28 @@ void Config::ReadControlValues() {
     ReadMotionTouchValues();
 
     EndGroup();
+    ReadRenHDrumValues();
+}
+
+// RenHDrum settings: one `key=value` per row of the core's table in section [RenHDrum]. Keys are
+// kept as they are; the core refuses the ones it does not know.
+void Config::ReadRenHDrumValues() {
+    BeginGroup("RenHDrum");
+    CSimpleIniA::TNamesDepend keys;
+    config->GetAllKeys(GetSection().c_str(), keys);
+    for (const auto& entry : keys) {
+        const std::string key = entry.pItem;
+        Settings::values.renhdrum_values.Set(key, static_cast<int>(ReadIntegerSetting(key)));
+    }
+    EndGroup();
+}
+
+void Config::SaveRenHDrumValues() {
+    BeginGroup("RenHDrum");
+    for (const auto& [key, value] : Settings::values.renhdrum_values.Snapshot()) {
+        WriteIntegerSetting(key, value);
+    }
+    EndGroup();
 }
 
 void Config::ReadMotionTouchValues() {
@@ -669,6 +691,7 @@ void Config::SaveControlValues() {
     SaveMotionTouchValues();
 
     EndGroup();
+    SaveRenHDrumValues();
 }
 
 void Config::SaveCoreValues() {

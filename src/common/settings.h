@@ -10,6 +10,7 @@
 #include <atomic>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -138,6 +139,42 @@ private:
 struct TouchFromButtonMap {
     std::string name;
     std::vector<std::string> buttons;
+};
+
+/// Saved RenHDrum settings by key (see Values::renhdrum_values). Thread safe: the dialog writes,
+/// the input thread reads.
+class RenHDrumValues {
+public:
+    void Set(const std::string& key, int value) {
+        std::scoped_lock lock{mutex};
+        values[key] = value;
+        ++version;
+    }
+    int Get(const std::string& key, int default_value) const {
+        std::scoped_lock lock{mutex};
+        const auto it = values.find(key);
+        return it == values.end() ? default_value : it->second;
+    }
+    /// The master switch and the DualSense haptics switch (keys of the core's settings table)
+    bool HdRumbleEnabled() const {
+        return Get("enable_hd_rumble", 1) != 0;
+    }
+    bool DualSenseHapticsEnabled() const {
+        return Get("dualsense_haptics", 1) != 0;
+    }
+    std::map<std::string, int> Snapshot() const {
+        std::scoped_lock lock{mutex};
+        return values;
+    }
+    u32 Version() const {
+        std::scoped_lock lock{mutex};
+        return version;
+    }
+
+private:
+    mutable std::mutex mutex;
+    std::map<std::string, int> values;
+    u32 version{1};
 };
 
 struct Values {
@@ -965,52 +1002,14 @@ struct Values {
     // the HID service, read by the RenHDrum pad driver. Not a user setting.
     std::atomic<int> nx2_active_mode{0};
 
-    // RenHDrum HD Rumble (Switch Pro Controller / Joy-Con) and DualSense haptics. Defaults are
-    // Ryuhdr 0.2.6's recommended mode. Read by the SDL driver on every vibration, so a change in
-    // the HD Rumble dialog applies to connected controllers right away.
-    Setting<bool> hd_rumble_enabled{linkage, true, "hd_rumble_enabled", Category::Controls};
-    // Off (default): the HD Rumble dialog shows only the switch and the tuning values below are
-    // ignored (built-in defaults). On: edit qt-config.ini by hand; no UI control sets it.
-    Setting<bool> hd_rumble_advanced{linkage, false, "hd_rumble_advanced", Category::Controls};
-    // Amplitude gain in percent for everything RenHDrum plays. Switchable: some Switch 2 games
-    // (Ocarina of Time) send amplitudes below 0.1 that the Joy-Con 2 still plays strongly.
-    SwitchableSetting<int> hd_rumble_gain{linkage, 100, "hd_rumble_gain", Category::Controls};
-    // 0-100: lifts weak vibrations more than strong ones (power curve after the gain).
-    SwitchableSetting<int> hd_rumble_low_boost{linkage, 0, "hd_rumble_low_boost",
-                                               Category::Controls};
-    Setting<int> hd_rumble_usb_interval_ms{linkage, 15, "hd_rumble_usb_interval_ms", Category::Controls};
-    Setting<bool> hd_rumble_envelope_5ms{linkage, true, "hd_rumble_envelope_5ms",
-                                         Category::Controls};
-    Setting<bool> hd_rumble_frequency_in_packet{linkage, true, "hd_rumble_frequency_in_packet",
-                                                Category::Controls};
-    Setting<bool> hd_rumble_crisp_notes{linkage, true, "hd_rumble_crisp_notes",
-                                        Category::Controls};
-    Setting<int> hd_rumble_bluetooth_level{linkage, 4, "hd_rumble_bluetooth_level", Category::Controls};
-    Setting<bool> hd_rumble_bt_after_input{linkage, true, "hd_rumble_bt_after_input",
-                                           Category::Controls};
-    Setting<bool> hd_rumble_bt_fast{linkage, true, "hd_rumble_bt_fast", Category::Controls};
-    Setting<bool> hd_rumble_bt_crisp_notes{linkage, true, "hd_rumble_bt_crisp_notes",
-                                           Category::Controls};
-    Setting<bool> dualsense_haptics_enabled{linkage, true, "dualsense_haptics_enabled",
-                                            Category::Controls};
-    Setting<int> dualsense_haptics_volume{linkage, 100, "dualsense_haptics_volume", Category::Controls};
-    Setting<bool> dualsense_crisp_notes{linkage, true, "dualsense_crisp_notes",
-                                        Category::Controls};
-    Setting<bool> switch_hd_rumble_enabled{linkage, true, "switch_hd_rumble_enabled",
-                                           Category::Controls};
-    Setting<bool> steam_hd_rumble_enabled{linkage, true, "steam_hd_rumble_enabled",
-                                          Category::Controls};
+    // RenHDrum HD Rumble settings: one value per key of the RenHDrum core's settings table
+    // (renhdrum_options). Saved in qt-config.ini under [RenHDrum] as `key=value`; no key is a
+    // Setting of its own. The SDL driver rebuilds its RenHDrum store when Version() changes, so a
+    // change in the HD Rumble dialog reaches connected controllers on their next vibration.
+    RenHDrumValues renhdrum_values;
+    // Plays a short confirmation rumble when a RenHDrum controller connects outside a game
     Setting<bool> hd_rumble_on_connect{linkage, true, "hd_rumble_on_connect",
                                        Category::Controls};
-    Setting<bool> xbox_rumble_enabled{linkage, true, "xbox_rumble_enabled", Category::Controls};
-    Setting<int> xbox_motor_strength{linkage, 100, "xbox_motor_strength", Category::Controls};
-    // 0: RenHDrum's four-motor mix, 1: direct (low band to the big motor, high band to the small)
-    Setting<int> xbox_rumble_mode{linkage, 0, "xbox_rumble_mode", Category::Controls};
-    // Direct mode: share of the high band added to the big motor, and the kick on a sudden rise
-    Setting<int> xbox_detail_mix{linkage, 50, "xbox_detail_mix", Category::Controls};
-    Setting<int> xbox_hit_accents{linkage, 50, "xbox_hit_accents", Category::Controls};
-    // Direct mode: share of the high band sent to the trigger motors (left side LT, right RT)
-    Setting<int> xbox_trigger_mix{linkage, 20, "xbox_trigger_mix", Category::Controls};
 
     SwitchableSetting<bool> motion_enabled{linkage, true, "motion_enabled", Category::Controls};
     Setting<std::string> udp_input_servers{linkage, "127.0.0.1:26760", "udp_input_servers",

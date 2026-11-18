@@ -31,6 +31,10 @@ bool IsRenHDrumBuilt();
 /// True when renhdrum.dll (librenhdrum.so / .dylib) was found and loaded. Loads it on first call.
 bool IsRenHDrumLoaded();
 
+/// Address of a function exported by renhdrum.dll (nullptr when not loaded or missing). The
+/// settings dialog resolves the settings table from here instead of loading the library again.
+void* GetRenHDrumSymbol(const char* name);
+
 /// Runtime version reported by renhdrum.dll (e.g. "0.4.0"), or "" when not loaded / older DLL.
 std::string GetRenHDrumVersionString();
 

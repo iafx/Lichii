@@ -154,6 +154,8 @@ add_executable(lichii
     configuration/configure_hd_rumble.h
     configuration/hd_rumble_dialog.cpp
     configuration/hd_rumble_dialog.h
+    configuration/renhdrum_settings_dialog.cpp
+    configuration/renhdrum_settings_dialog.h
     configuration/auto_assign.cpp
     configuration/auto_assign.h
     configuration/configure_vibration.cpp
@@ -432,6 +434,8 @@ elseif(WIN32)
 endif()
 
 target_link_libraries(lichii PRIVATE nlohmann_json::nlohmann_json)
+# The shared RenHDrum settings page includes the C ABI header (declarations only)
+target_include_directories(lichii PRIVATE ${PROJECT_SOURCE_DIR}/externals/renhdrum)
 target_link_libraries(lichii PRIVATE common core input_common frontend_common network video_core qt_common)
 target_link_libraries(lichii PRIVATE Boost::headers Qt6::Widgets Qt6::Concurrent Qt6::Network)
 # Unpacks NVIDIA's files from the Streamline release (nvidia_dlss_panel.cpp).

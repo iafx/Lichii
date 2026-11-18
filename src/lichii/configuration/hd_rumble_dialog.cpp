@@ -28,6 +28,7 @@
 #include <QPalette>
 #include <QProcess>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QStandardPaths>
 #include <QStyle>
 #include <QSysInfo>
@@ -360,15 +361,15 @@ void ThunderRumblePlayer::Send(float low_amp, float low_freq, float high_amp, fl
 HdRumbleDialog::HdRumbleDialog(QWidget* parent, Core::HID::HIDCore& hid_core_)
     : QDialog(parent), hid_core{hid_core_}, thunder{new ThunderRumblePlayer(hid_core_, this)} {
     setWindowTitle(tr("HD Rumble"));
+    setMinimumSize(520, 420);
+    resize(560, 640);
 
     auto* root = new QVBoxLayout(this);
     root->setSpacing(8);
 
-    // 1. Enable toggle & compact runtime status on the same row
+    // Runtime status
     auto* top_row = new QHBoxLayout;
     top_row->setSpacing(6);
-    hd_enabled = new QCheckBox(tr("Enable HD Rumble"));
-    hd_enabled->setChecked(Settings::values.hd_rumble_enabled.GetValue());
     status_dot = new QLabel(QStringLiteral("●"));
     status_label = MakeMutedLabel(QString{});
     status_label->setWordWrap(false);
@@ -376,232 +377,47 @@ HdRumbleDialog::HdRumbleDialog(QWidget* parent, Core::HID::HIDCore& hid_core_)
         QStringLiteral("<a href=\"%1\">%2</a>")
             .arg(QString::fromLatin1(RELEASES_URL), tr("Download")));
     missing_link->setOpenExternalLinks(true);
-    top_row->addWidget(hd_enabled);
-    top_row->addStretch(1);
     top_row->addWidget(status_dot);
     top_row->addWidget(status_label);
+    top_row->addStretch(1);
     top_row->addWidget(missing_link);
     root->addLayout(top_row);
 
-    // 2. Connected controllers table (no QGroupBox, auto-sized to 1-3 rows)
-    pad_tree = new QTreeWidget;
-    pad_tree->setHeaderLabels({tr("Controller"), tr("Connection"), tr("Player")});
-    pad_tree->setRootIsDecorated(false);
-    pad_tree->setIndentation(0);
-    pad_tree->setSelectionMode(QAbstractItemView::NoSelection);
-    pad_tree->setFocusPolicy(Qt::NoFocus);
-    pad_tree->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    pad_tree->header()->setStretchLastSection(false);
-    pad_tree->header()->setSectionResizeMode(0, QHeaderView::Stretch);
-    pad_tree->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
-    pad_tree->header()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
-    root->addWidget(pad_tree);
+    // The settings page: master switch, controller in use, Other controllers, Advanced
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(CreateHdRumbleSettingsPage(
+        scroll, [this] { thunder->Play(); },
+        [this] { ReportControllerProblem(this, hid_core); }));
+    root->addWidget(scroll, 1);
 
-    const QFontMetrics fm = pad_tree->fontMetrics();
-    const int max_name_w = std::max({
-        fm.horizontalAdvance(QStringLiteral("Nintendo Switch Pro Controller")),
-        fm.horizontalAdvance(QStringLiteral("DualSense Wireless Controller")),
-        fm.horizontalAdvance(QStringLiteral("Steam Controller (2026)")),
-        fm.horizontalAdvance(tr("No supported controllers connected")),
-    });
-    const int conn_col_w = std::max(fm.horizontalAdvance(tr("Connection")),
-                                    fm.horizontalAdvance(tr("Bluetooth")));
-    const int player_col_w = std::max({
-        fm.horizontalAdvance(tr("Player")),
-        fm.horizontalAdvance(tr("Not assigned")),
-        fm.horizontalAdvance(tr("Handheld")),
-        fm.horizontalAdvance(tr("Player 8")),
-    });
-    const QMargins root_margins = root->contentsMargins();
-    const int scroll_w = QApplication::style()->pixelMetric(QStyle::PM_ScrollBarExtent);
-    const int pad_tree_extra = 2 * pad_tree->frameWidth() + scroll_w + 48;
-    setMinimumWidth(max_name_w + conn_col_w + player_col_w + pad_tree_extra +
-                    root_margins.left() + root_margins.right());
-
-    // 3. Single Controllers group (neutral widgets, tooltips carry descriptions)
-    controllers_group = new QGroupBox(tr("Controllers"));
-    auto* ctrl_layout = new QVBoxLayout(controllers_group);
-    ctrl_layout->setSpacing(6);
-
-    auto* switch_row = new QHBoxLayout;
-    switch_row->setSpacing(6);
-    switch_enabled = new QCheckBox(tr("Switch (Pro / Joy-Con)"));
-    switch_enabled->setChecked(Settings::values.switch_hd_rumble_enabled.GetValue());
-    switch_enabled->setToolTip(
-        tr("Sends full-detail HD Rumble waveforms directly to Nintendo Switch controllers."));
-    switch_row->addWidget(switch_enabled);
-    switch_row->addStretch(1);
-    switch_row->addWidget(new QLabel(tr("Bluetooth")));
-    switch_bt_mode = new QComboBox;
-    switch_bt_mode->addItem(tr("Detailed (5 ms)"), true);
-    switch_bt_mode->addItem(tr("Compatible"), false);
-    switch_bt_mode->setCurrentIndex(Settings::values.hd_rumble_bt_fast.GetValue() ? 0 : 1);
-    switch_bt_mode->setToolTip(
-        tr("Detailed (5 ms) sends full 5 ms envelopes over Bluetooth; Compatible uses level 4 "
-           "fallback if packets are dropped."));
-    switch_row->addWidget(switch_bt_mode);
-    ctrl_layout->addLayout(switch_row);
-
-    dualsense_enabled = new QCheckBox(tr("DualSense"));
-    dualsense_enabled->setChecked(Settings::values.dualsense_haptics_enabled.GetValue());
-    dualsense_enabled->setToolTip(
-        tr("Plays HD Rumble through the DualSense voice-coil actuators over USB or Bluetooth."));
-    ctrl_layout->addWidget(dualsense_enabled);
-
-    xbox_enabled = new QCheckBox(tr("Xbox"));
-    xbox_enabled->setChecked(Settings::values.xbox_rumble_enabled.GetValue());
-    xbox_enabled->setToolTip(
-        tr("Translates HD Rumble into grip and trigger feedback on Xbox-style controllers."));
-    ctrl_layout->addWidget(xbox_enabled);
-
-    if (InputCommon::GetRenHDrumXboxNeedsRawInput() &&
-        !Settings::values.enable_raw_input.GetValue()) {
-        xbox_raw_box = new QWidget;
-        auto* raw_row = new QHBoxLayout(xbox_raw_box);
-        raw_row->setContentsMargins(20, 0, 0, 0);
-        raw_row->addWidget(
-            MakeMutedLabel(tr("Trigger rumble needs \"XInput 8 player support\".")), 1);
-        auto* raw_btn = new QPushButton(tr("Turn it on"));
-        raw_row->addWidget(raw_btn);
-        ctrl_layout->addWidget(xbox_raw_box);
-        connect(raw_btn, &QPushButton::clicked, this, [this] {
-            Settings::values.enable_raw_input.SetValue(true);
-            for (QWidget* top : QApplication::topLevelWidgets()) {
-                if (auto* box = top->findChild<QCheckBox*>(QStringLiteral("enable_raw_input"))) {
-                    box->setChecked(true);
-                }
-            }
-            xbox_raw_box->setVisible(false);
-            adjustSize();
-            QMessageBox::information(
-                this, tr("HD Rumble"),
-                tr("\"XInput 8 player support\" is now on.\n"
-                   "Click OK to save Controls, then reconnect the Xbox controller so Windows "
-                   "hands its trigger motors to SDL."));
-        });
-    }
-
-    auto* steam_row = new QHBoxLayout;
-    steam_row->setSpacing(6);
-    steam_enabled = new QCheckBox(tr("Steam Controller (2026)"));
-    steam_enabled->setChecked(Settings::values.steam_hd_rumble_enabled.GetValue());
-    steam_enabled->setToolTip(
-        tr("Experimental grip haptics for Steam Controller (2026) driven by RenHDrum."));
-    auto* steam_exp = MakeMutedLabel(tr("Experimental"));
-    steam_exp->setWordWrap(false);
-    QFont exp_font = steam_exp->font();
-    exp_font.setPointSizeF(std::max(8.0, exp_font.pointSizeF() - 1.0));
-    steam_exp->setFont(exp_font);
-    steam_row->addWidget(steam_enabled);
-    steam_row->addWidget(steam_exp);
-    steam_row->addStretch(1);
-    ctrl_layout->addLayout(steam_row);
-
-    root->addWidget(controllers_group);
-
-    // 4. Test & rumble on connect
-    auto* actions_row = new QHBoxLayout;
-    test_button = new QPushButton(tr("Test rumble"));
     rumble_on_connect = new QCheckBox(tr("Rumble when a controller connects"));
     rumble_on_connect->setChecked(Settings::values.hd_rumble_on_connect.GetValue());
-    actions_row->addWidget(test_button);
-    actions_row->addSpacing(8);
-    actions_row->addWidget(rumble_on_connect, 1);
-    root->addLayout(actions_row);
+    connect(rumble_on_connect, &QCheckBox::toggled, this,
+            [](bool on) { Settings::values.hd_rumble_on_connect.SetValue(on); });
+    root->addWidget(rumble_on_connect);
 
-    // 5. Footer: credit + report + close
-    auto* footer = new QHBoxLayout;
-    footer_credit = MakeMutedLabel(QString{});
-    footer_credit->setWordWrap(false);
-    QFont credit_font = footer_credit->font();
-    credit_font.setPointSizeF(std::max(8.0, credit_font.pointSizeF() - 1.0));
-    footer_credit->setFont(credit_font);
-
-    auto* report_button = new QPushButton(tr("Report a problem"));
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
-    if (Settings::values.hd_rumble_advanced.GetValue()) {
-        auto* adv_btn = buttons->addButton(tr("Advanced..."), QDialogButtonBox::ActionRole);
-        connect(adv_btn, &QPushButton::clicked, this, [this] {
-            ConfigureHdRumble legacy(this);
-            if (legacy.exec() == QDialog::Accepted) {
-                legacy.ApplyConfiguration();
-                hd_enabled->setChecked(Settings::values.hd_rumble_enabled.GetValue());
-                dualsense_enabled->setChecked(Settings::values.dualsense_haptics_enabled.GetValue());
-                xbox_enabled->setChecked(Settings::values.xbox_rumble_enabled.GetValue());
-                switch_bt_mode->setCurrentIndex(
-                    Settings::values.hd_rumble_bt_fast.GetValue() ? 0 : 1);
-                ApplyEnabledState();
-                RefreshStatus();
-            }
-        });
-    }
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    footer->addWidget(footer_credit, 1);
-    footer->addWidget(report_button);
-    footer->addWidget(buttons);
-    root->addLayout(footer);
-
-    // Live persistence
-    connect(hd_enabled, &QCheckBox::toggled, this, [this](bool on) {
-        Settings::values.hd_rumble_enabled.SetValue(on);
-        ApplyEnabledState();
-        RefreshStatus();
-    });
-    connect(switch_enabled, &QCheckBox::toggled, this, [this](bool on) {
-        Settings::values.switch_hd_rumble_enabled.SetValue(on);
-        ApplyEnabledState();
-    });
-    connect(switch_bt_mode, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
-        Settings::values.hd_rumble_bt_fast.SetValue(switch_bt_mode->currentData().toBool());
-    });
-    connect(dualsense_enabled, &QCheckBox::toggled, this, [](bool on) {
-        Settings::values.dualsense_haptics_enabled.SetValue(on);
-    });
-    connect(xbox_enabled, &QCheckBox::toggled, this, [](bool on) {
-        Settings::values.xbox_rumble_enabled.SetValue(on);
-    });
-    connect(steam_enabled, &QCheckBox::toggled, this, [](bool on) {
-        Settings::values.steam_hd_rumble_enabled.SetValue(on);
-    });
-    connect(rumble_on_connect, &QCheckBox::toggled, this, [](bool on) {
-        Settings::values.hd_rumble_on_connect.SetValue(on);
-    });
-    connect(test_button, &QPushButton::clicked, thunder, &ThunderRumblePlayer::Play);
-    connect(report_button, &QPushButton::clicked, this,
-            [this] { ReportControllerProblem(this, hid_core); });
+    root->addWidget(buttons);
 
     refresh_timer.setInterval(1000);
-    connect(&refresh_timer, &QTimer::timeout, this, [this] {
-        RefreshPads();
-        RefreshStatus();
-    });
+    connect(&refresh_timer, &QTimer::timeout, this, [this] { RefreshStatus(); });
     refresh_timer.start();
-
-    RefreshPads();
-    ApplyEnabledState();
     RefreshStatus();
 }
 
 HdRumbleDialog::~HdRumbleDialog() = default;
 
-void HdRumbleDialog::ApplyEnabledState() {
-    const bool master = hd_enabled->isChecked();
-    controllers_group->setEnabled(master);
-    switch_bt_mode->setEnabled(master && switch_enabled->isChecked());
-    test_button->setEnabled(master);
-}
-
 void HdRumbleDialog::RefreshStatus() {
     const bool loaded = InputCommon::IsRenHDrumLoaded();
+    const bool master = Settings::values.renhdrum_values.HdRumbleEnabled();
     const std::string ver = InputCommon::GetRenHDrumVersionString();
     const QString ver_q = ver.empty() ? tr("not loaded") : QString::fromStdString(ver);
-    const QString fork = QStringLiteral("%1 %2").arg(
-        QString::fromLatin1(Common::g_build_name),
-        QString::fromLatin1(Common::g_build_version));
-    footer_credit->setText(tr("Powered by RenHDrum %1 · %2").arg(ver_q, fork));
 
     const auto pads = InputCommon::GetRenHDrumPads();
-    const bool active = loaded && hd_enabled->isChecked() && !pads.empty();
+    const bool active = loaded && master && !pads.empty();
     QPalette dot_pal = status_dot->palette();
     dot_pal.setColor(QPalette::WindowText,
                      dot_pal.color(active ? QPalette::Highlight : QPalette::PlaceholderText));
@@ -612,7 +428,7 @@ void HdRumbleDialog::RefreshStatus() {
     if (!loaded) {
         status_label->setText(tr("renhdrum.dll not found"));
         tip = tr("renhdrum.dll was not found — using standard rumble.");
-    } else if (!hd_enabled->isChecked()) {
+    } else if (!master) {
         status_label->setText(tr("off · standard rumble"));
         tip = tr("HD Rumble is turned off — using standard rumble.");
     } else if (pads.empty()) {
@@ -626,54 +442,6 @@ void HdRumbleDialog::RefreshStatus() {
     }
     status_label->setToolTip(tip);
     status_dot->setToolTip(tip);
-}
-
-void HdRumbleDialog::RefreshPads() {
-    const auto pads = InputCommon::GetRenHDrumPads();
-    std::string signature;
-    struct RowData {
-        QString name;
-        QString link;
-        QString player;
-    };
-    std::vector<RowData> rows;
-    rows.reserve(pads.size());
-    for (const auto& pad : pads) {
-        const QString player = PlayerUsing(hid_core, pad);
-        const QString link = pad.is_bluetooth ? tr("Bluetooth") : tr("USB");
-        const QString name = QString::fromStdString(pad.name);
-        signature += pad.name + "|" + pad.guid + "|" + (pad.is_bluetooth ? "B" : "U") + "|" +
-                     player.toStdString() + ";";
-        rows.push_back({name, link, player.isEmpty() ? tr("Not assigned") : player});
-    }
-    if (rows.empty()) {
-        signature = "<empty>";
-    }
-    if (signature == last_pad_signature) {
-        return;
-    }
-    last_pad_signature = std::move(signature);
-    pad_tree->clear();
-    if (rows.empty()) {
-        auto* item = new QTreeWidgetItem(pad_tree, {tr("No supported controllers connected"), {}, {}});
-        QPalette pal = pad_tree->palette();
-        item->setForeground(0, pal.color(QPalette::PlaceholderText));
-    } else {
-        for (const auto& r : rows) {
-            new QTreeWidgetItem(pad_tree, {r.name, r.link, r.player});
-        }
-    }
-    const int visible_rows = std::clamp(static_cast<int>(rows.size()), 1, 3);
-    int row_h = pad_tree->sizeHintForRow(0);
-    if (row_h <= 0) {
-        row_h = pad_tree->fontMetrics().height() + 6;
-    }
-    const int header_h = pad_tree->header()->sizeHint().height();
-    pad_tree->setFixedHeight(header_h + visible_rows * row_h + 2 * pad_tree->frameWidth());
-    if (isVisible()) {
-        pad_tree->updateGeometry();
-        adjustSize();
-    }
 }
 
 RumbleOnConnect::RumbleOnConnect(Core::HID::HIDCore& hid_core_, std::function<bool()> running_,
@@ -692,7 +460,7 @@ void RumbleOnConnect::Poll() {
             pad.guid + "|" + pad.name + (pad.is_bluetooth ? "/bt" : "/usb");
         fresh |= seen.insert(key).second;
     }
-    if (fresh && !game_running() && Settings::values.hd_rumble_enabled.GetValue() &&
+    if (fresh && !game_running() && Settings::values.renhdrum_values.HdRumbleEnabled() &&
         Settings::values.hd_rumble_on_connect.GetValue()) {
         thunder->Play();
     }

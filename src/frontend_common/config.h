@@ -76,6 +76,7 @@ protected:
 
     void ReadTouchscreenValues();
     void ReadMotionTouchValues();
+    void ReadRenHDrumValues();
 
     // Read functions bases off the respective config section names.
     void ReadAudioValues();
@@ -108,6 +109,7 @@ protected:
     void SavePlayerValues(std::size_t player_index);
     void SaveTouchscreenValues();
     void SaveMotionTouchValues();
+    void SaveRenHDrumValues();
 
     // Save functions based off the respective config section names.
     void SaveAudioValues();
