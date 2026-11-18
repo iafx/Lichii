@@ -700,10 +700,6 @@ struct RenHDrumPad::Impl {
                 SDL_DelayPrecise(next - now);
             } else if (now - next > ResyncNs) {
                 next = now; // stalled: resync instead of bursting
-                if (audio_on) {
-                    SendSteamGripMode(bt_hid, 2, format); // the audio may have stopped meanwhile
-                    last_mode = now;
-                }
             }
         }
         bt_running.store(false);
