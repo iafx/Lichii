@@ -335,20 +335,44 @@ int32_t renhdrum_dualsense_dsp_build_bt36_report(
     uint8_t *out_report398
 );
 /* Experimental: Steam Controller (2026) grips, report 0x88, built from iafx's measurements (RenHDrum#5).
-   Create with renhdrum_valve_grip_dsp_create, then use renhdrum_dualsense_dsp_set_half_target and
+   Create with renhdrum_valve_grip_dsp_create[_ex], then use renhdrum_dualsense_dsp_set_half_target and
    renhdrum_dualsense_dsp_destroy on the handle. One report every RENHDRUM_VALVE_GRIP_PERIOD_NS_*.
-   Returns 1 when the block carries vibration, 0 when silent, < 0 on error
-   (unknown format -> RENHDRUM_ERR_INVALID_ARG). out_report64 must hold 64 bytes. */
+   build_report returns 1 when vibrating, 0 when silent, 2 (RENHDRUM_VALVE_GRIP_SKIP) when 40 ppm drift
+   compensation skips this packet (only if created with drift_compensation = true; do not send, phase
+   unchanged), < 0 on error (unknown format -> RENHDRUM_ERR_INVALID_ARG). out_report64: 64 bytes.
+   mode_tick evaluates the 0x86 PCM mode keep-alive (on at first vibration, refresh every 3 s or on
+   stalled=true, off after 100 ms silence) and writes 0 or 2 reports (4 bytes each) into out_reports8.
+   mode_off writes 2 off reports (channels 2 and 5) into out_reports8 for detach/exit paths. */
 #define RENHDRUM_VALVE_GRIP_REPORT_SIZE 64
 #define RENHDRUM_VALVE_GRIP_FORMAT_MULAW_8K 8
 #define RENHDRUM_VALVE_GRIP_FORMAT_MULAW_4K 9
 #define RENHDRUM_VALVE_GRIP_PERIOD_NS_8K 3875000ULL
 #define RENHDRUM_VALVE_GRIP_PERIOD_NS_4K 7750000ULL
+#define RENHDRUM_VALVE_GRIP_SKIP 2
+#define RENHDRUM_VALVE_GRIP_MODE_REPORT_SIZE 4
+#define RENHDRUM_VALVE_GRIP_MODE_REPORT_COUNT 2
+#define RENHDRUM_VALVE_GRIP_MODE_REPORTS_SIZE 8
 RenHdcDualSenseDsp *renhdrum_valve_grip_dsp_create(int32_t volume_percent, bool crisp_notes);
+RenHdcDualSenseDsp *renhdrum_valve_grip_dsp_create_ex(
+    int32_t volume_percent,
+    bool crisp_notes,
+    bool drift_compensation
+);
 int32_t renhdrum_valve_grip_build_report(
     RenHdcDualSenseDsp *dsp,
     uint8_t format,
     uint8_t *out_report64
+);
+int32_t renhdrum_valve_grip_mode_tick(
+    RenHdcDualSenseDsp *dsp,
+    uint8_t format,
+    uint64_t now_ns,
+    bool stalled,
+    uint8_t *out_reports8
+);
+int32_t renhdrum_valve_grip_mode_off(
+    uint8_t format,
+    uint8_t *out_reports8
 );
 /* Vibration-reactive trigger (one handle per trigger). update: 1 = changed (11 bytes written to
    out11, pack with the DS5 effects state), 0 = unchanged, <0 = error. */
@@ -366,7 +390,10 @@ int32_t renhdrum_tri_trigger_update(
     bool fresh,
     uint8_t *out11
 );
-/* Player pressed another button: no new pulse until 500 ms after the last call (same clock as update). */
+/* Player is pressing another button (call every tick while held, before update, same clock):
+   a streak started strictly before this trigger was held counts as a posture and does not mute;
+   a streak started with or after trigger hold (gap > 30 ms starts a new streak) mutes new pulses
+   while held and for 500 ms after the last call. */
 void renhdrum_tri_trigger_note_action(RenHdcTriTrigger *h, uint32_t now_ms);
 /* 47-byte DS5EffectsState_t USB blocks for HD Haptics (speaker open/release, single-trigger update/off).
    Returns 0 on success, -1 (RENHDRUM_ERR_NULL_PTR) if out47 is NULL. */
