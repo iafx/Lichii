@@ -417,12 +417,16 @@ std::string PadName(SDL_Joystick* joystick, SDL_Gamepad* gamepad, int kind, Uint
 // there. The joystick pointer is copied out and used after unlocking: SDL3 validates joystick
 // handles, so a call on one closed meanwhile only fails.
 //
-// `claimed_audio_mutex` is a leaf lock (ordered after `mutex`): under it only
-// `claimed_audio_devices` is touched, with no SDL calls.
+// `claimed_audio_mutex` and `active_pads_mutex` are leaf locks (ordered after `mutex`): under
+// them only their vectors are touched, with no SDL calls.
 //
-// A DualSense on Bluetooth has no audio endpoint. A thread of its own sends the haptics as HID
-// output report 0x32 on a second handle to the pad. That thread never takes `mutex`; it holds
-// `bt_dsp_mutex` while it reads the DSP, and the DSP is replaced only under that lock too.
+// `bo3_tri_mutex` sits outside `mutex` (order: `bo3_tri_mutex` -> `mutex` -> `bt_dsp_mutex`) so
+// trigger packets are always sent in state-machine order without holding `mutex` across SDL.
+//
+// A DualSense on Bluetooth has no audio endpoint, and a Steam Controller (2026) sends grip PCM
+// frames on its own HID thread. Those sender threads never take `mutex`; they hold `bt_dsp_mutex`
+// while reading the DSP, and `dsp` / `bt_effect` / speaker state are replaced only under
+// `bt_dsp_mutex` too (`mutex` -> `bt_dsp_mutex`).
 struct RenHDrumPad::Impl {
     Uint16 vid{};
     Uint16 pid{};
@@ -639,7 +643,8 @@ struct RenHDrumPad::Impl {
                 const auto& api = Api();
                 api.dsp_destroy(dsp);
                 dsp = api.dsp_create(now.dualsense_volume, now.dualsense_crisp_notes);
-                if (dsp && bo3_speaker_on && api.dsp_set_speaker) {
+                if (dsp && (bo3_speaker_on || (is_bluetooth && bt_report36.load())) &&
+                    api.dsp_set_speaker) {
                     api.dsp_set_speaker(dsp, RENHDRUM_HD_HAPTICS_SPEAKER_PERCENT);
                 }
             }
@@ -753,7 +758,8 @@ struct RenHDrumPad::Impl {
             js = joystick;
             const bool want = api.HasHdHaptics() && user.hd_enabled && user.dualsense_enabled &&
                               user.hd_haptics;
-            bt_report36.store(want && is_bluetooth && api.dsp_build_bt36_report != nullptr);
+            const bool bt36 = want && is_bluetooth && api.dsp_build_bt36_report != nullptr;
+            bt_report36.store(bt36);
             if (want && gamepad) {
                 for (auto& handle : tri) {
                     if (!handle) {
@@ -781,6 +787,9 @@ struct RenHDrumPad::Impl {
                     bo3_speaker_on = false;
                     close_speaker = true;
                 }
+            } else if (api.dsp_set_speaker) {
+                std::scoped_lock bt_lock{bt_dsp_mutex};
+                api.dsp_set_speaker(dsp, bt36 ? RENHDRUM_HD_HAPTICS_SPEAKER_PERCENT : 0);
             }
         }
         if (open_speaker) {
@@ -968,6 +977,13 @@ struct RenHDrumPad::Impl {
         }
         if (old_hid) {
             SDL_hid_close(old_hid);
+        }
+        {
+            std::scoped_lock lock{mutex};
+            if (!joystick || !dsp) {
+                js = nullptr;
+                gp = nullptr;
+            }
         }
         if (js) {
             StartDualSenseBluetooth(js, gp);
@@ -1903,6 +1919,9 @@ void RenHDrumPad::Tick(std::int64_t now_us) {
                     impl->audio_attempts = DualSenseAudioMaxAttempts;
                     lost = true;
                     lost_speaker = std::exchange(impl->bo3_speaker_on, false);
+                    if (lost_speaker && impl->dsp && Api().dsp_set_speaker) {
+                        Api().dsp_set_speaker(impl->dsp, 0);
+                    }
                 }
             }
             if (lost_speaker) {
