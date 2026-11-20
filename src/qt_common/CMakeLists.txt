@@ -2,10 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 add_library(qt_common STATIC
     qt_common.h
     qt_common.cpp
+
+    brand/song_rung_theme.h
+    brand/song_rung_theme.cpp
+    brand/ambient_backdrop.h
+    brand/ambient_backdrop.cpp
+    brand/song_rung_brand.qrc
 
     gamemode.cpp
     gamemode.h
@@ -91,6 +98,8 @@ target_compile_definitions(qt_common PUBLIC
 
     # Disable implicit QString->QUrl conversions to enforce use of proper resolving functions.
     QT_NO_URL_CAST_FROM_STRING
+
+    RENHDRUM_HAS_BRAND_QRC
 )
 
 target_link_libraries(qt_common PRIVATE core Qt6::Core Qt6::Concurrent SimpleIni::SimpleIni QuaZip::QuaZip)

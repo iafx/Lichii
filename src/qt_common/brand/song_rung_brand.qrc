@@ -1,0 +1,27 @@
+<!--
+SPDX-License-Identifier: GPL-3.0-or-later
+-->
+
+<RCC>
+    <qresource prefix="/brand">
+        <file>theme/song-rung.qss</file>
+        <file>fonts/IBMPlexSans-Variable.ttf</file>
+        <file>fonts/IBMPlexMono-Regular.ttf</file>
+        <file>fonts/IBMPlexMono-Medium.ttf</file>
+        <file>fonts/IBMPlexMono-SemiBold.ttf</file>
+        <file alias="fonts/OFL.txt">../../../externals/renhdrum/IBM-Plex-OFL.txt</file>
+        <file>logo/renhdrum-light-18.png</file>
+        <file>logo/renhdrum-light-18@2x.png</file>
+        <file>logo/renhdrum-dark-18.png</file>
+        <file>logo/renhdrum-dark-18@2x.png</file>
+        <file>logo/renhdrum-color-ondark-28.png</file>
+        <file>logo/renhdrum-color-ondark-28@2x.png</file>
+        <file>logo/renhdrum-color-onlight-28.png</file>
+        <file>logo/renhdrum-color-onlight-28@2x.png</file>
+        <file>logo/renhdrum-light.svg</file>
+        <file>logo/renhdrum-dark.svg</file>
+        <file>logo/renhdrum-color-ondark.svg</file>
+        <file>logo/renhdrum-color-onlight.svg</file>
+        <file>logo/renhdrum-mark.svg</file>
+    </qresource>
+</RCC>
