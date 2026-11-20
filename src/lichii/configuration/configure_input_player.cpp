@@ -21,6 +21,7 @@
 #include "input_common/drivers/mouse.h"
 #include "input_common/drivers/renhdrum_pad.h"
 #include "input_common/main.h"
+#include "qt_common/brand/rumble_pill.h"
 #include "qt_common/config/qt_config.h"
 #include "ui_configure_input_player.h"
 #include "lichii/bootmanager.h"
@@ -324,10 +325,13 @@ ConfigureInputPlayer::ConfigureInputPlayer(QWidget* parent, std::size_t player_i
     ui->setupUi(this);
 
     if (InputCommon::IsRenHDrumBuilt()) {
-        auto* hd_rumble = new QPushButton(tr("HD Rumble..."), ui->controllerFrame);
+        // Below the controller picture, not inside it: the picture draws the analog test circles
+        // down to 150 px under its centre, so a button laid over it would cover them.
+        auto* hd_rumble = new RenHDrumQt::RumblePill(tr("HD Rumble"), this);
         hd_rumble->setToolTip(tr("HD Rumble settings, connected controllers, and rumble test."));
-        ui->verticalLayout_4->addStretch(1);
-        ui->verticalLayout_4->addWidget(hd_rumble, 0, Qt::AlignHCenter);
+        ui->bottomMiddleLayout->insertWidget(
+            ui->bottomMiddleLayout->indexOf(ui->controllerFrame) + 1, hd_rumble, 0,
+            Qt::AlignHCenter);
         connect(hd_rumble, &QPushButton::clicked, this,
                 [this] { HdRumbleDialog(this, hid_core).exec(); });
     }

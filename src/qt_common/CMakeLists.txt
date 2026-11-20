@@ -12,6 +12,8 @@ add_library(qt_common STATIC
     brand/song_rung_theme.cpp
     brand/ambient_backdrop.h
     brand/ambient_backdrop.cpp
+    brand/rumble_pill.h
+    brand/rumble_pill.cpp
     brand/song_rung_brand.qrc
 
     gamemode.cpp
