@@ -15,6 +15,8 @@
 
 #include <renhdrum.h>
 
+class QEvent;
+class QFrame;
 class QLabel;
 class QPushButton;
 class QTimer;
@@ -78,10 +80,16 @@ public:
     /// Value of `key` in the page's store (the recommended default when unknown).
     int Value(const char* key) const;
 
+protected:
+    void changeEvent(QEvent* event) override;
+
 private:
     struct Row;
     void Rebuild();
     void Refresh();
+    void ApplyThemeColors();
+    QLabel* MakeMuted(const QString& text, bool body_item, QWidget* parent = nullptr);
+    QFrame* MakeDivider(bool body_item, QWidget* parent = nullptr);
     void SetValue(int index, int value);
     int ValueAt(int index) const;
     QWidget* MakeRow(int index, QWidget* parent);
@@ -109,6 +117,15 @@ private:
     bool others_open{};
     bool advanced_open{};
     QWidget* master_box{};
+    QPointer<QLabel> logo_label;
+    QPointer<QLabel> credit_label;
+    QString credit_suffix_text;
+    QPointer<QLabel> active_pill_label;
+    QString active_pill_text;
+    std::vector<QPointer<QLabel>> static_muted_labels;
+    std::vector<QPointer<QLabel>> body_muted_labels;
+    std::vector<QPointer<QFrame>> static_dividers;
+    std::vector<QPointer<QFrame>> body_dividers;
 };
 
 } // namespace RenHDrumQt
