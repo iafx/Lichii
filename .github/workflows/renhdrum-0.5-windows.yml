@@ -1,10 +1,10 @@
-name: lichii-renhdrum-0.4-windows
+name: lichii-renhdrum-0.5-windows
 
-# Lichii (test/all-in-one-10 at 9c9a1df) + RenHDrum 0.4.0's eden-switch2 series (0001-0019), Windows
-# x64, with renhdrum.dll 0.4.0 built from its source and shipped next to lichii.exe. On top of
+# Lichii (test/all-in-one-10 at 9c9a1df) + RenHDrum 0.5.0's eden-switch2 series (0001-0034), Windows
+# x64, with renhdrum.dll 0.5.0 built from its source and shipped next to lichii.exe. On top of
 # RenHDrum as its author publishes it: the Steam Controller (2026) grip audio is switched off when
 # idle and 0x86 is resent while it plays (RenHDrum#5), and RenHDrum leaves virtual joysticks alone.
-# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum-0.4 or renhdrum-aio10
+# Run it from the Actions tab ("Run workflow") or by pushing to the renhdrum-0.5
 # branch.
 # By default it is the PGO build, as Lichii's windows-x86_64-pgo release: clang-cl with ThinLTO
 # and lichii-windows.profdata (trained on Ocarina of Time). Untick "pgo" for the plain MSVC build.
@@ -17,15 +17,14 @@ on:
         default: true
   push:
     branches:
-      - renhdrum-0.4
-      - renhdrum-aio10
+      - renhdrum-0.5
 
 permissions:
   contents: read
 
 jobs:
   windows:
-    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + RenHDrum 0.4.0
+    name: ${{ (github.event_name != 'workflow_dispatch' || inputs.pgo) && 'windows-x86_64-pgo' || 'windows-x86_64' }} + RenHDrum 0.5.0
     runs-on: windows-2022
     env:
       SCCACHE_DIR: ${{ github.workspace }}/.sccache
@@ -37,11 +36,11 @@ jobs:
       - name: Check out Lichii
         uses: actions/checkout@v5
 
-      - name: Check out RenHDrum 0.4.0
+      - name: Check out RenHDrum 0.5.0
         uses: actions/checkout@v5
         with:
           repository: trzz1214/RenHDrum
-          ref: v0.4.0
+          ref: v0.5.0
           path: _renhdrum
 
       # renhdrum.dll: Rust, no dependencies; its .cargo/config.toml links the C runtime statically,
@@ -97,9 +96,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .cache/cpm
-          key: cpm-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
+          key: cpm-renhdrum05-${{ env.PLATFORM }}-${{ hashFiles('cpmfile.json', '.patch/**', 'CMakeLists.txt', 'externals/**/CMakeLists.txt') }}
           restore-keys: |
-            cpm-renhdrum04-${{ env.PLATFORM }}-
+            cpm-renhdrum05-${{ env.PLATFORM }}-
             cpm-${{ env.PLATFORM }}-v2-
 
       - name: Restore compiler objects
@@ -107,9 +106,9 @@ jobs:
         with:
           path: .sccache
           # The profile's hash is in the key, so objects built against another profile never return
-          key: objects-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-${{ github.sha }}
+          key: objects-renhdrum05-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-${{ github.sha }}
           restore-keys: |
-            objects-renhdrum04-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-
+            objects-renhdrum05-${{ env.PLATFORM }}-${{ hashFiles(env.PROFILE) }}-
 
       # SDL3 is built from source as on Lichii's release (static, with Lichii's own libusb for the
       # Switch 2 controller driver), as RenHDrum's .patch/sdl3-hdrumble: the same SDL 3.4.20 and
@@ -130,7 +129,7 @@ jobs:
             -DENABLE_QT_TRANSLATION=ON
             -DLICHII_USE_BUNDLED_SDL3=ON
             -DENABLE_UPDATE_CHECKER=OFF
-            -DLICHII_BUILD_TAG=renhdrum-0.4.0-aio10-${{ github.run_number }}
+            -DLICHII_BUILD_TAG=renhdrum-0.5.0-aio10-${{ github.run_number }}
             -DENABLE_RENHDRUM=ON
             -DRENHDRUM_DOWNLOAD=OFF
             -DRENHDRUM_SDL_PATCHES=ON
@@ -192,18 +191,18 @@ jobs:
             if (-not (Test-Path "build/release/bin/$f")) { throw "build/release/bin/$f was not produced" }
           }
           windeployqt --release --no-translations build/release/bin/lichii.exe
-          # RenHDrum 0.4.0 (MIT OR Apache-2.0), loaded at run time; without it the standard rumble
+          # RenHDrum 0.5.0 (MIT OR Apache-2.0), loaded at run time; without it the standard rumble
           Copy-Item _renhdrum/target/release/renhdrum.dll build/release/bin/
           Copy-Item _renhdrum/LICENSE-MIT build/release/bin/RENHDRUM-LICENSE-MIT.txt
           Copy-Item _renhdrum/LICENSE-APACHE build/release/bin/RENHDRUM-LICENSE-APACHE.txt
           Get-ChildItem build/release/bin -Exclude *.pdb, *.ilk, *.lib, *.exp |
-            Compress-Archive -DestinationPath "lichii-aio10-renhdrum-0.4.0-$env:PLATFORM.zip"
+            Compress-Archive -DestinationPath "lichii-aio10-renhdrum-0.5.0-$env:PLATFORM.zip"
 
       - name: Upload
         uses: actions/upload-artifact@v7
         with:
-          name: lichii-aio10-renhdrum-0.4.0-${{ env.PLATFORM }}-${{ github.sha }}
-          path: lichii-aio10-renhdrum-0.4.0-${{ env.PLATFORM }}.zip
+          name: lichii-aio10-renhdrum-0.5.0-${{ env.PLATFORM }}-${{ github.sha }}
+          path: lichii-aio10-renhdrum-0.5.0-${{ env.PLATFORM }}.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
