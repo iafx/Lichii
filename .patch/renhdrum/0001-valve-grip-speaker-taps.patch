@@ -1,0 +1,272 @@
+From ca3e2fb0a240579c8ff3e7a797e588007f9f29f1 Mon Sep 17 00:00:00 2001
+From: iafx <iafx@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 21:51:26 +0100
+Subject: [PATCH] feat(valve): HD Haptics speaker taps on the Steam
+ Controller's grips, over the cable
+
+The Steam Controller (2026) has no speaker, but its grips play beeps and
+chirps as well as a DualSense speaker does (iafx, by ear, on its cable). The
+grip DSP now runs the HD Haptics speaker taps too: one generator per side,
+each through the speaker high-pass and a 400 Hz high-pass (below that a grip
+turns sound into vibration), and the packer adds them under the vibration
+with a limiter that leaves anything up to the 0.8 ceiling unchanged. Only
+format 8 (8 kHz, cable) carries them; at 4 kHz the band ends near 2 kHz.
+The studio motor stays off on the grips. RENHDRUM_GRIP_SPEAKER_PERCENT
+(0..100, 0 = off) sets the level, default HD_HAPTICS_SPEAKER_PERCENT (60).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BFWME9SqbTVn9THetM56Pq
+---
+ src/dualsense/haptics.rs | 62 +++++++++++++++++++++++++++++---
+ src/ffi.rs               | 15 +++++++-
+ src/valve/grip.rs        | 76 ++++++++++++++++++++++++++++++++++------
+ 3 files changed, 137 insertions(+), 16 deletions(-)
+
+diff --git a/src/dualsense/haptics.rs b/src/dualsense/haptics.rs
+index eca95ae..ca6d721 100644
+--- a/src/dualsense/haptics.rs
++++ b/src/dualsense/haptics.rs
+@@ -26,6 +26,15 @@ pub struct DualSenseVoice {
+ 
+ /// Hard ceiling of the output (full scale = 1.0) to protect the actuators.
+ pub const DUALSENSE_OUTPUT_CEILING: f32 = 0.8;
++/// 2nd-order Butterworth high-pass at 400 Hz, 48 kHz: [b0, b1, b2, a1, a2]. With the speaker's
++/// own high-pass (about the same) the grip speaker falls at 24 dB/octave below 400 Hz.
++const GRIP_SPEAKER_HP400: [f64; 5] = [
++    0.963_652_763_964_173,
++    -1.927_305_527_928_346,
++    0.963_652_763_964_173,
++    -1.925_983_969_731_886,
++    0.928_627_086_124_807,
++];
+ pub const DUALSENSE_AMPLITUDE_EXPONENT: f64 = 0.5;
+ pub const DUALSENSE_SAMPLE_RATE: i32 = 48000;
+ pub const DUALSENSE_CHANNELS: usize = 4;
+@@ -158,6 +167,10 @@ pub struct DualSenseHapticsDsp {
+     spk_right: SpeakerSide,
+     spk_hp_x: [f64; 2],
+     spk_hp_y: [f64; 2],
++    /// Valve grip speaker: the right side's copy of the speaker high-pass, then a 400 Hz
++    /// high-pass per side (below that a grip turns sound into vibration). [x1, x2, y1, y2].
++    grip_spk_hp_right: [f64; 4],
++    grip_spk_hp400: [[f64; 4]; 2],
+     motor: MotorPair,
+     #[cfg(test)]
+     pub(super) boom_drive: f32,
+@@ -204,6 +217,8 @@ impl DualSenseHapticsDsp {
+             spk_right: SpeakerSide::new_seeded(0x6C07_8965, 0x7F4A_7C15),
+             spk_hp_x: [0.0; 2],
+             spk_hp_y: [0.0; 2],
++            grip_spk_hp_right: [0.0; 4],
++            grip_spk_hp400: [[0.0; 4]; 2],
+             motor: MotorPair::default(),
+             #[cfg(test)]
+             boom_drive: MOTOR_BOOM_DRIVE,
+@@ -239,6 +254,8 @@ impl DualSenseHapticsDsp {
+             self.spk_right = SpeakerSide::new_seeded(0x6C07_8965, 0x7F4A_7C15);
+             self.spk_hp_x = [0.0; 2];
+             self.spk_hp_y = [0.0; 2];
++            self.grip_spk_hp_right = [0.0; 4];
++            self.grip_spk_hp400 = [[0.0; 4]; 2];
+             self.motor = MotorPair::default();
+         }
+     }
+@@ -385,12 +402,20 @@ impl DualSenseHapticsDsp {
+             self.slot_frames_left -= 1;
+ 
+             let base = frame * DUALSENSE_CHANNELS;
+-            out_frames[base] = 0.0;
+-            out_frames[base + 1] = if self.speaker_gain > 0.0 {
+-                self.next_speaker_sample(&spk)
++            if self.grip && self.speaker_gain > 0.0 {
++                // Valve grips: no speaker, so each grip plays its own side's taps on channels
++                // 0 (left) and 1 (right); ValveGripPacker mixes them under the vibration.
++                let [l, r] = self.next_grip_speaker_samples(&spk);
++                out_frames[base] = l;
++                out_frames[base + 1] = r;
+             } else {
+-                0.0
+-            };
++                out_frames[base] = 0.0;
++                out_frames[base + 1] = if self.speaker_gain > 0.0 {
++                    self.next_speaker_sample(&spk)
++                } else {
++                    0.0
++                };
++            }
+             out_frames[base + DUALSENSE_LEFT_CHANNEL] = Self::next_sample(
+                 &mut self.voice_left,
+                 &self.slot_left,
+@@ -444,6 +469,33 @@ impl DualSenseHapticsDsp {
+         (y * self.speaker_gain as f64).clamp(-0.98, 0.98) as f32
+     }
+ 
++    /// One speaker sample per grip: each side's taps through the speaker high-pass and a 400 Hz
++    /// high-pass, at the speaker level. Experimental (iafx): measured by ear on one Steam
++    /// Controller (2026) over its cable, where beeps and chirps sounded like a DualSense speaker.
++    fn next_grip_speaker_samples(&mut self, c: &SpkCoefs) -> [f32; 2] {
++        let gain = self.speaker_gain as f64;
++        let l = self.spk_left.next_sample(c);
++        let r = self.spk_right.next_sample(c);
++        let [b0, b1, b2, a1, a2] = SPEAKER_HP;
++        let yl = b0 * l + b1 * self.spk_hp_x[0] + b2 * self.spk_hp_x[1]
++            - a1 * self.spk_hp_y[0]
++            - a2 * self.spk_hp_y[1];
++        self.spk_hp_x = [l, self.spk_hp_x[0]];
++        self.spk_hp_y = [yl, self.spk_hp_y[0]];
++        let h = &mut self.grip_spk_hp_right;
++        let yr = b0 * r + b1 * h[0] + b2 * h[1] - a1 * h[2] - a2 * h[3];
++        *h = [r, h[0], yr, h[2]];
++        let mut out = [0.0f32; 2];
++        for (i, x) in [yl, yr].into_iter().enumerate() {
++            let [b0, b1, b2, a1, a2] = GRIP_SPEAKER_HP400;
++            let h = &mut self.grip_spk_hp400[i];
++            let y = b0 * x + b1 * h[0] + b2 * h[1] - a1 * h[2] - a2 * h[3];
++            *h = [x, h[0], y, h[2]];
++            out[i] = (y * gain).clamp(-0.98, 0.98) as f32;
++        }
++        out
++    }
++
+     /// Ryuhdr DualSenseHaptics.Fill, top part: one slot = one 256-frame callback there.
+     fn start_slot(&mut self) {
+         if self.speaker_gain > 0.0 {
+diff --git a/src/ffi.rs b/src/ffi.rs
+index 7c398cf..d1cbfe6 100644
+--- a/src/ffi.rs
++++ b/src/ffi.rs
+@@ -1010,8 +1010,10 @@ pub extern "C" fn renhdrum_valve_grip_dsp_create_ex(
+     } else {
+         (volume_percent, crisp_notes)
+     };
++    let mut grip = DualSenseHapticsDsp::new_grip(vol, crisp);
++    grip.set_speaker(valve_grip_speaker_percent());
+     Box::into_raw(Box::new(RenHdcDualSenseDsp {
+-        inner: std::sync::Mutex::new(DualSenseHapticsDsp::new_grip(vol, crisp)),
++        inner: std::sync::Mutex::new(grip),
+         bt_packer: std::sync::Mutex::new(DualSenseBtPacker::default()),
+         bt_crisp_notes: crisp,
+         speaker_explicit: std::sync::atomic::AtomicBool::new(false),
+@@ -1021,6 +1023,17 @@ pub extern "C" fn renhdrum_valve_grip_dsp_create_ex(
+     }))
+ }
+ 
++/// Experimental: the HD Haptics speaker taps on the Steam Controller's grips, over its cable.
++/// `RENHDRUM_GRIP_SPEAKER_PERCENT` (0..100, 0 = off) sets the level; default
++/// `HD_HAPTICS_SPEAKER_PERCENT`, as on a DualSense.
++fn valve_grip_speaker_percent() -> i32 {
++    std::env::var("RENHDRUM_GRIP_SPEAKER_PERCENT")
++        .ok()
++        .and_then(|v| v.trim().parse::<i32>().ok())
++        .map(|v| v.clamp(0, 100))
++        .unwrap_or(crate::dualsense::HD_HAPTICS_SPEAKER_PERCENT)
++}
++
+ #[no_mangle]
+ pub unsafe extern "C" fn renhdrum_dualsense_dsp_destroy(dsp: *mut RenHdcDualSenseDsp) {
+     if !dsp.is_null() {
+diff --git a/src/valve/grip.rs b/src/valve/grip.rs
+index a5119e1..9e8b533 100644
+--- a/src/valve/grip.rs
++++ b/src/valve/grip.rs
+@@ -80,6 +80,19 @@ pub fn grip_gain(hz: f32) -> f32 {
+     10f32.powf(db / 20.0)
+ }
+ 
++/// Leaves `x` as it is up to the DualSense output ceiling (0.8, where the vibration alone ends)
++/// and bends what the speaker taps add above it smoothly towards 1.
++#[inline]
++fn soft_limit(x: f32) -> f32 {
++    const KNEE: f32 = 0.8;
++    let a = x.abs();
++    if a <= KNEE {
++        x
++    } else {
++        (KNEE + (1.0 - KNEE) * ((a - KNEE) / (1.0 - KNEE)).tanh()).copysign(x)
++    }
++}
++
+ #[inline]
+ const fn fill_silent_report(out: &mut [u8; VALVE_GRIP_REPORT_SIZE]) {
+     *out = [MULAW_SILENCE[0]; VALVE_GRIP_REPORT_SIZE];
+@@ -163,19 +176,22 @@ impl ValveGripPacker {
+         let pcm = &mut self.pcm[..VALVE_GRIP_SAMPLES * stride];
+         dsp.fill_interleaved_f32(pcm);
+ 
++        // The speaker taps (channels 0 and 1, see DualSenseHapticsDsp) only on the cable: at 4 kHz
++        // the band ends near 2 kHz, where they turn into a dull buzz.
++        let speaker = format == VALVE_GRIP_FORMAT_MULAW_8K;
+         let mut signal = false;
+         for (i, block) in pcm.chunks_exact(stride).enumerate() {
+-            for (offset, channel) in [
+-                (LEFT_OFFSET, DUALSENSE_LEFT_CHANNEL),
+-                (RIGHT_OFFSET, DUALSENSE_RIGHT_CHANNEL),
++            for (offset, channel, speaker_channel) in [
++                (LEFT_OFFSET, DUALSENSE_LEFT_CHANNEL, 0),
++                (RIGHT_OFFSET, DUALSENSE_RIGHT_CHANNEL, 1),
+             ] {
+-                let mean = block
+-                    .as_chunks::<DUALSENSE_CHANNELS>()
+-                    .0
+-                    .iter()
+-                    .map(|f| f[channel])
+-                    .sum::<f32>()
+-                    / decimation as f32;
++                let frames = block.as_chunks::<DUALSENSE_CHANNELS>().0;
++                let mut mean = frames.iter().map(|f| f[channel]).sum::<f32>() / decimation as f32;
++                if speaker {
++                    mean +=
++                        frames.iter().map(|f| f[speaker_channel]).sum::<f32>() / decimation as f32;
++                    mean = soft_limit(mean);
++                }
+                 let code = mulaw_encode(mean);
+                 out[offset + i] = code;
+                 signal |= !MULAW_SILENCE.contains(&code);
+@@ -627,4 +643,44 @@ mod tests {
+             );
+         }
+     }
++
++    #[test]
++    fn test_soft_limit_leaves_the_vibration_alone() {
++        for x in [-0.8f32, -0.3, 0.0, 0.42, 0.8] {
++            assert_eq!(soft_limit(x), x);
++        }
++        assert!(soft_limit(1.4) < 1.0 && soft_limit(1.4) > 0.8);
++        assert_eq!(soft_limit(-1.4), -soft_limit(1.4));
++    }
++
++    /// Clicks on the left side: the speaker taps reach the left grip on the cable (8 kHz) only.
++    #[test]
++    fn test_speaker_taps_on_the_cable_only() {
++        for (format, expect_taps) in [
++            (VALVE_GRIP_FORMAT_MULAW_8K, true),
++            (VALVE_GRIP_FORMAT_MULAW_4K, false),
++        ] {
++            let mut plain = DualSenseHapticsDsp::new_grip(100, false);
++            let mut tapped = DualSenseHapticsDsp::new_grip(100, false);
++            tapped.set_speaker(60);
++            let (mut a, mut b) = (ValveGripPacker::default(), ValveGripPacker::default());
++            let (mut ra, mut rb) = ([0u8; VALVE_GRIP_REPORT_SIZE], [0u8; VALVE_GRIP_REPORT_SIZE]);
++            let mut left_differs = false;
++            for n in 0..400 {
++                let click = n % 40 < 3;
++                for dsp in [&mut plain, &mut tapped] {
++                    dsp.set_half_target(false, 0.1, 160.0, if click { 0.7 } else { 0.0 }, 320.0);
++                }
++                a.build(&mut plain, format, &mut ra);
++                b.build(&mut tapped, format, &mut rb);
++                left_differs |= ra[LEFT_OFFSET..RIGHT_OFFSET] != rb[LEFT_OFFSET..RIGHT_OFFSET];
++                assert_eq!(
++                    ra[RIGHT_OFFSET..],
++                    rb[RIGHT_OFFSET..],
++                    "right grip got left taps"
++                );
++            }
++            assert_eq!(left_differs, expect_taps, "format {format}");
++        }
++    }
+ }
+-- 
+2.43.0
+

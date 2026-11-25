@@ -1,0 +1,67 @@
+name: renhdrum-grip-speaker-dll
+
+# renhdrum.dll alone: RenHDrum v0.5.0 plus .patch/renhdrum (the HD Haptics speaker taps on a Steam
+# Controller's grips). Drop-in for Longshot, Lichii or any host of RenHDrum 0.5.0; a few minutes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - renhdrum-grip-speaker
+    paths:
+      - .patch/renhdrum/**
+      - .github/workflows/renhdrum-grip-speaker-dll.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dll:
+    name: renhdrum.dll (Windows x64)
+    runs-on: windows-latest
+    steps:
+      # The patches are LF, like RenHDrum's sources: keep the checkouts byte for byte
+      - name: No line-ending conversion
+        shell: bash
+        run: git config --global core.autocrlf false
+
+      - name: Check out the patches
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: .patch/renhdrum
+
+      - name: Check out RenHDrum 0.5.0
+        uses: actions/checkout@v5
+        with:
+          repository: trzz1214/RenHDrum
+          ref: v0.5.0
+          path: _renhdrum
+
+      - name: Apply the patches
+        shell: bash
+        working-directory: _renhdrum
+        run: |
+          set -euo pipefail
+          for p in ../.patch/renhdrum/*.patch; do
+            git apply --verbose "$p"
+          done
+
+      - name: Test
+        shell: bash
+        working-directory: _renhdrum
+        run: cargo test --release --lib
+
+      - name: Build renhdrum.dll
+        shell: bash
+        working-directory: _renhdrum
+        run: |
+          set -euo pipefail
+          cargo build --release
+          ls -la target/release/renhdrum.dll
+
+      - name: Upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: renhdrum-0.5.0-grip-speaker-${{ github.sha }}
+          path: _renhdrum/target/release/renhdrum.dll
+          if-no-files-found: error
