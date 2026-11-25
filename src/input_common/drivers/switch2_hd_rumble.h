@@ -66,6 +66,9 @@ private:
     s64 last_send_us{0};
     s64 last_game_us{0};
     std::vector<std::pair<f32, f32>> calibration;
+    // LICHII_SWITCH2_RUMBLE=raw: the game's amplitudes as they are, no DualSense shaping or
+    // calibration, to compare against a real Switch 2
+    bool raw{false};
 };
 
 } // namespace InputCommon

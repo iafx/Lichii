@@ -134,6 +134,12 @@ std::shared_ptr<Switch2HdRumble> Switch2HdRumble::Create(SDL_Joystick* joystick)
 }
 
 Switch2HdRumble::Switch2HdRumble(SDL_Joystick* joystick_, const char* name) : joystick{joystick_} {
+    const char* mode = SDL_getenv("LICHII_SWITCH2_RUMBLE");
+    raw = mode && std::strcmp(mode, "raw") == 0;
+    if (raw) {
+        LOG_INFO(Input, "Switch 2 HD rumble for {}: raw (the game's amplitudes, no shaping)", name);
+        return;
+    }
     calibration = LoadCalibrationFile("calibration_switch2.txt");
     if (calibration.empty()) {
         calibration = LoadCalibrationFile("calibracion_switch2.txt");
@@ -179,8 +185,9 @@ bool Switch2HdRumble::SendIfDue(s64 now_us) {
         const bool fresh = now_us - last_game_us < STALE_US;
         for (size_t i = 0; i < 2; ++i) {
             const auto& g = game[i];
-            const auto level = fresh ? DualSenseLevels(g.lo_amp, g.hi_amp, onset_us[i], now_us)
-                                     : std::array<f32, 2>{};
+            const auto level = !fresh ? std::array<f32, 2>{}
+                               : raw  ? std::array<f32, 2>{g.lo_amp, g.hi_amp}
+                                      : DualSenseLevels(g.lo_amp, g.hi_amp, onset_us[i], now_us);
             motors[i].lo_freq = FrequencyCode(g.lo_hz);
             motors[i].hi_freq = FrequencyCode(g.hi_hz);
             motors[i].lo_amp = code(level[0] * CalibrationGain(calibration, g.lo_hz));
