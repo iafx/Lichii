@@ -1054,16 +1054,11 @@ struct RenHDrumPad::Impl {
                 }
                 break;
             }
-            const Uint64 after = SDL_GetTicksNS();
-            if (next > after) {
-                SDL_DelayPrecise(next - after);
-            } else if (after - next > ResyncNs) {
-                next = after; // stalled: resync instead of bursting
-                write_stalled = true;
+            if (next > now) {
+                SDL_DelayPrecise(next - now);
+            } else if (now - next > ResyncNs) {
+                next = now; // stalled: resync instead of bursting
             }
-        }
-        if (bt_hid) {
-            SendSteamGripModeOff(bt_hid, format);
         }
         bt_running.store(false);
     }
@@ -1151,6 +1146,93 @@ struct RenHDrumPad::Impl {
     // (iafx, RenHDrum#5); drop a few packets during the quietest moments if reported.
     void SteamGripLoop() {
         Common::SetCurrentThreadName("RenHDrumSteamGrips");
+        if (Api().HasValveMode()) {
+            SteamGripLoopCoreMode();
+        } else {
+            SteamGripLoopOwnMode();
+        }
+        // The grips back to standard rumble on every way out (Release no longer does it)
+        if (bt_hid) {
+            SendSteamGripModeOff(bt_hid, steam_format);
+        }
+        bt_running.store(false);
+    }
+
+    /// RenHDrum 0.5.0 and later: the core says when to send the 0x86 mode reports ("on" at the
+    /// first vibration and every 3 s, at once after a stalled write, "off" after 100 ms of
+    /// silence) and asks for one report in ~25,000 to be skipped (clock drift).
+    void SteamGripLoopCoreMode() {
+        constexpr Uint64 ResyncNs = 100'000'000ULL;
+        const auto& api = Api();
+        const Uint8 format = steam_format;
+        const Uint64 period_ns = format == RENHDRUM_VALVE_GRIP_FORMAT_MULAW_8K
+                                     ? RENHDRUM_VALVE_GRIP_PERIOD_NS_8K
+                                     : RENHDRUM_VALVE_GRIP_PERIOD_NS_4K;
+        std::array<std::uint8_t, RENHDRUM_VALVE_GRIP_REPORT_SIZE> report{};
+        std::array<std::uint8_t, RENHDRUM_VALVE_GRIP_MODE_REPORTS_SIZE> mode_reports{};
+        Uint64 next = SDL_GetTicksNS();
+        Uint64 last_signal = 0;
+        int fails_in_row = 0;
+        bool write_stalled = false;
+        while (bt_running.load()) {
+            next += period_ns;
+            const Uint64 now = SDL_GetTicksNS();
+            int built = -1;
+            int mode_count = 0;
+            {
+                std::scoped_lock lock{bt_dsp_mutex};
+                if (steam_dsp) {
+                    built = api.valve_build_report(steam_dsp, format, report.data());
+                    if (built >= 0) {
+                        mode_count = api.valve_mode_tick(steam_dsp, format, now, write_stalled,
+                                                         mode_reports.data());
+                    }
+                }
+            }
+            write_stalled = false;
+            for (int i = 0; i < mode_count; ++i) {
+                if (SDL_hid_write(bt_hid,
+                                  mode_reports.data() + i * RENHDRUM_VALVE_GRIP_MODE_REPORT_SIZE,
+                                  RENHDRUM_VALVE_GRIP_MODE_REPORT_SIZE) < 0) {
+                    write_stalled = true;
+                    ++fails_in_row;
+                } else {
+                    fails_in_row = 0;
+                }
+            }
+            if (built == 1 || built == RENHDRUM_VALVE_GRIP_SKIP) {
+                last_signal = now;
+            }
+            if (built >= 0 && built != RENHDRUM_VALVE_GRIP_SKIP && last_signal != 0 &&
+                now - last_signal < SteamGripTailNs) {
+                if (SDL_hid_write(bt_hid, report.data(), report.size()) < 0) {
+                    write_stalled = true;
+                    ++fails_in_row;
+                } else {
+                    fails_in_row = 0;
+                }
+            }
+            if (fails_in_row >= SteamGripMaxFailsInRow) {
+                if (!bt_warned.exchange(true)) {
+                    LOG_WARNING(Input,
+                                "RenHDrum: Steam Controller grip writes failing ({}), using the "
+                                "standard rumble",
+                                SDL_GetError());
+                }
+                break;
+            }
+            const Uint64 after = SDL_GetTicksNS();
+            if (next > after) {
+                SDL_DelayPrecise(next - after);
+            } else if (after - next > ResyncNs) {
+                next = after; // stalled: resync instead of bursting
+                write_stalled = true; // the core sends 0x86 "on" again
+            }
+        }
+    }
+
+    /// Older renhdrum.dll without the core mode manager: Lichii keeps the 0x86 mode itself.
+    void SteamGripLoopOwnMode() {
         constexpr Uint64 ResyncNs = 100'000'000ULL;
         const auto& api = Api();
         const Uint8 format = steam_format;
@@ -1223,7 +1305,6 @@ struct RenHDrumPad::Impl {
                 }
             }
         }
-        bt_running.store(false);
     }
 
     /// Releases this pad's claimed USB audio device so another DualSense can open it.
